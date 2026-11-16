@@ -594,6 +594,24 @@ class _SignInScreenState extends State<SignInScreen> {
     'Please sign in with your mobile number or email for now.',
   );
 
+  InputDecoration _sheetField(String hint) => InputDecoration(
+    hintText: hint,
+    filled: true,
+    fillColor: Colors.white,
+    border: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(16),
+      borderSide: const BorderSide(color: C.line),
+    ),
+    enabledBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(16),
+      borderSide: const BorderSide(color: C.line),
+    ),
+    focusedBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(16),
+      borderSide: const BorderSide(color: C.deep, width: 2),
+    ),
+  );
+
   Future<void> _sendCode() async {
     FocusScope.of(context).unfocus();
     final String identifier;
@@ -620,9 +638,16 @@ class _SignInScreenState extends State<SignInScreen> {
       if (mounted) toast(context, e.message);
       return;
     }
+    // Like the website: new customers give their name, and anyone signing in
+    // with a phone number who has no email on file must add one.
+    final who = await Repo.checkIdentifier(identifier);
     if (!mounted) return;
     final code = TextEditingController();
     final name = TextEditingController();
+    final email = TextEditingController();
+    bool emailOk() => RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(email.text.trim());
+    bool ready() => code.text.length == 4 && (!who.needsEmail || emailOk());
+    var busy = false;
     showSheet(
       context,
       title: 'Enter your code',
@@ -663,25 +688,35 @@ class _SignInScreenState extends State<SignInScreen> {
                 ),
               ),
             ),
-            const SizedBox(height: 8),
-            const SizedBox(height: 10),
-            TextField(
-              controller: name,
-              textCapitalization: TextCapitalization.words,
-              decoration: InputDecoration(
-                hintText: 'Your name (new customers)',
-                filled: true,
-                fillColor: Colors.white,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(16),
-                  borderSide: const BorderSide(color: C.line),
-                ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(16),
-                  borderSide: const BorderSide(color: C.line),
+            if (!who.exists) ...[
+              const SizedBox(height: 18),
+              TextField(
+                controller: name,
+                textCapitalization: TextCapitalization.words,
+                textInputAction: who.needsEmail ? TextInputAction.next : TextInputAction.done,
+                autofillHints: const [AutofillHints.name],
+                decoration: _sheetField('Your name'),
+              ),
+            ],
+            if (who.needsEmail) ...[
+              const SizedBox(height: 10),
+              TextField(
+                controller: email,
+                keyboardType: TextInputType.emailAddress,
+                autocorrect: false,
+                textInputAction: TextInputAction.done,
+                autofillHints: const [AutofillHints.email],
+                onChanged: (_) => setS(() {}),
+                decoration: _sheetField('Email (required)').copyWith(
+                  errorText: email.text.trim().isNotEmpty && !emailOk() ? 'Enter a valid email address' : null,
                 ),
               ),
-            ),
+              const SizedBox(height: 6),
+              Text(
+                'We send your order updates and receipts here.',
+                style: dm(12.5, color: C.grey),
+              ),
+            ],
             const SizedBox(height: 8),
             Text(
               'The code expires in 10 minutes.',
@@ -690,23 +725,36 @@ class _SignInScreenState extends State<SignInScreen> {
             ),
             const SizedBox(height: 16),
             Btn(
-              'Verify & continue',
-              onTap: code.text.length == 4
+              busy ? 'Checking…' : 'Verify & continue',
+              onTap: ready() && !busy
                   ? () async {
+                      setS(() => busy = true);
                       try {
                         await Repo.verifyCode(
                           identifier,
                           code.text,
                           name: name.text,
+                          email: who.needsEmail ? email.text : null,
                         );
                         if (ctx.mounted) Navigator.pop(ctx);
                         _enterApp();
                       } on ApiException catch (e) {
-                        if (ctx.mounted) toast(ctx, e.message);
+                        if (ctx.mounted) {
+                          setS(() => busy = false);
+                          toast(ctx, e.message);
+                        }
                       }
                     }
                   : null,
             ),
+            if (who.needsEmail && code.text.length == 4 && !emailOk()) ...[
+              const SizedBox(height: 8),
+              Text(
+                'Add your email to continue.',
+                textAlign: TextAlign.center,
+                style: dm(12.5, color: C.deep, weight: FontWeight.w700),
+              ),
+            ],
           ],
         ),
       ),
@@ -846,27 +894,30 @@ class _SignInScreenState extends State<SignInScreen> {
                           style: BtnStyle.outline,
                           height: 50,
                           fontSize: 15,
+                          padX: 8,
                           icon: Icons.apple,
                           onTap: _notYet,
                         ),
                       ),
-                      const SizedBox(width: 10),
+                      const SizedBox(width: 8),
                       Expanded(
                         child: Btn(
                           'Google',
                           style: BtnStyle.outline,
                           height: 50,
                           fontSize: 15,
+                          padX: 8,
                           onTap: _notYet,
                         ),
                       ),
-                      const SizedBox(width: 10),
+                      const SizedBox(width: 8),
                       Expanded(
                         child: Btn(
                           _email ? 'Phone' : 'Email',
                           style: BtnStyle.outline,
                           height: 50,
                           fontSize: 15,
+                          padX: 8,
                           onTap: () => setState(() {
                             _email = !_email;
                             _phone.clear();

@@ -306,11 +306,25 @@ class Repo {
     await Api.post('/auth/otp/request', {'identifier': identifier});
   }
 
-  static Future<void> verifyCode(String identifier, String code, {String? name}) async {
+  /// Same check as the website's sign-in form: is this a new customer, and is
+  /// an email still needed? (Older servers without this check: assume a new
+  /// customer, and ask phone sign-ups for an email.)
+  static Future<({bool exists, bool needsEmail})> checkIdentifier(String identifier) async {
+    try {
+      final j = await Api.post('/auth/check', {'identifier': identifier});
+      final d = j['data'] as Map<String, dynamic>;
+      return (exists: d['exists'] == true, needsEmail: d['needs_email'] == true);
+    } catch (_) {
+      return (exists: false, needsEmail: !identifier.contains('@'));
+    }
+  }
+
+  static Future<void> verifyCode(String identifier, String code, {String? name, String? email}) async {
     final j = await Api.post('/auth/otp/verify', {
       'identifier': identifier,
       'code': code,
       if (name != null && name.trim().isNotEmpty) 'name': name.trim(),
+      if (email != null && email.trim().isNotEmpty) 'email': email.trim().toLowerCase(),
     });
     final d = j['data'] as Map<String, dynamic>;
     await Api.saveToken(d['token'] as String);

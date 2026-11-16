@@ -66,5 +66,13 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Lick It uses your location to fill in your delivery address and find the nearest store.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Lick It uses the camera for the Photo Booth so you can take and share framed photos.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Lick It saves your Photo Booth pictures to your photos when you choose Save Image.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Lick It uses the microphone when taking photos or videos in the Photo Booth.</string>
 </dict>
 </plist>

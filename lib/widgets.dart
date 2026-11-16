@@ -113,6 +113,9 @@ class Btn extends StatelessWidget {
   final bool expand;
   final IconData? icon;
 
+  /// Space between the edge and the label (smaller for buttons side by side).
+  final double padX;
+
   const Btn(
     this.label, {
     super.key,
@@ -123,6 +126,7 @@ class Btn extends StatelessWidget {
     this.trailing,
     this.expand = true,
     this.icon,
+    this.padX = 22,
   });
 
   @override
@@ -151,11 +155,16 @@ class Btn extends StatelessWidget {
           ? const BorderSide(color: C.ink, width: 2)
           : BorderSide.none,
     );
-    final text = Text(
-      label,
-      style: dm(fontSize, color: fg, weight: FontWeight.w700),
-      maxLines: 1,
-      overflow: TextOverflow.ellipsis,
+    // Shrinks the label to fit instead of cutting it off ("Goo…") on small
+    // phones such as the iPhone 7/8/SE or with larger text settings.
+    final text = FittedBox(
+      fit: BoxFit.scaleDown,
+      child: Text(
+        label,
+        style: dm(fontSize, color: fg, weight: FontWeight.w700),
+        maxLines: 1,
+        softWrap: false,
+      ),
     );
     return SizedBox(
       width: expand ? double.infinity : null,
@@ -167,7 +176,7 @@ class Btn extends StatelessWidget {
         child: InkWell(
           onTap: onTap,
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 22),
+            padding: EdgeInsets.symmetric(horizontal: padX),
             child: Row(
               mainAxisSize: expand ? MainAxisSize.max : MainAxisSize.min,
               mainAxisAlignment: trailing == null
@@ -176,7 +185,7 @@ class Btn extends StatelessWidget {
               children: [
                 if (icon != null) ...[
                   Icon(icon, color: fg, size: 20),
-                  const SizedBox(width: 8),
+                  SizedBox(width: padX < 16 ? 4 : 8),
                 ],
                 if (expand) Flexible(child: text) else text,
                 if (trailing != null)

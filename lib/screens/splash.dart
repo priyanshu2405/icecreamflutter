@@ -574,6 +574,7 @@ class SignInScreen extends StatefulWidget {
 
 class _SignInScreenState extends State<SignInScreen> {
   final _phone = TextEditingController();
+  bool _email = false; // sign in with email instead of mobile (same as the website)
 
   @override
   void dispose() {
@@ -590,17 +591,29 @@ class _SignInScreenState extends State<SignInScreen> {
 
   void _notYet() => toast(
     context,
-    'Please sign in with your mobile number for now.',
+    'Please sign in with your mobile number or email for now.',
   );
 
   Future<void> _sendCode() async {
     FocusScope.of(context).unfocus();
-    final digits = _phone.text.replaceAll(RegExp(r'\D'), '');
-    if (digits.length < 7) {
-      toast(context, 'Enter your mobile number first');
-      return;
+    final String identifier;
+    final String shownTo;
+    if (_email) {
+      identifier = _phone.text.trim().toLowerCase();
+      if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(identifier)) {
+        toast(context, 'Enter your email address first');
+        return;
+      }
+      shownTo = identifier;
+    } else {
+      final digits = _phone.text.replaceAll(RegExp(r'\D'), '');
+      if (digits.length < 7) {
+        toast(context, 'Enter your mobile number first');
+        return;
+      }
+      identifier = '+1$digits';
+      shownTo = '+1 ${_phone.text}';
     }
-    final identifier = '+1$digits';
     try {
       await Repo.requestCode(identifier);
     } on ApiException catch (e) {
@@ -618,7 +631,7 @@ class _SignInScreenState extends State<SignInScreen> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text(
-              'We sent a 4-digit code to +1 ${_phone.text}.',
+              'We sent a 4-digit code to $shownTo.',
               style: dm(15, color: C.grey),
             ),
             const SizedBox(height: 18),
@@ -755,11 +768,11 @@ class _SignInScreenState extends State<SignInScreen> {
                     style: dm(15.5, color: C.grey, height: 1.4),
                   ),
                   const SizedBox(height: 22),
-                  Text('Mobile number', style: dm(15, weight: FontWeight.w700)),
+                  Text(_email ? 'Email' : 'Mobile number', style: dm(15, weight: FontWeight.w700)),
                   const SizedBox(height: 8),
                   Row(
                     children: [
-                      Container(
+                      if (!_email) Container(
                         width: 52,
                         height: 56,
                         alignment: Alignment.center,
@@ -773,13 +786,16 @@ class _SignInScreenState extends State<SignInScreen> {
                           style: dm(17, weight: FontWeight.w500),
                         ),
                       ),
-                      const SizedBox(width: 10),
+                      if (!_email) const SizedBox(width: 10),
                       Expanded(
                         child: TextField(
                           controller: _phone,
-                          keyboardType: TextInputType.phone,
+                          keyboardType: _email ? TextInputType.emailAddress : TextInputType.phone,
+                          autocorrect: false,
                           style: dm(18),
                           decoration: InputDecoration(
+                            hintText: _email ? 'you@example.com' : null,
+                            hintStyle: dm(17, color: C.grey),
                             filled: true,
                             fillColor: Colors.white,
                             contentPadding: const EdgeInsets.symmetric(
@@ -847,11 +863,14 @@ class _SignInScreenState extends State<SignInScreen> {
                       const SizedBox(width: 10),
                       Expanded(
                         child: Btn(
-                          'Email',
+                          _email ? 'Phone' : 'Email',
                           style: BtnStyle.outline,
                           height: 50,
                           fontSize: 15,
-                          onTap: _notYet,
+                          onTap: () => setState(() {
+                            _email = !_email;
+                            _phone.clear();
+                          }),
                         ),
                       ),
                     ],

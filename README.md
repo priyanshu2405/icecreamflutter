@@ -1,15 +1,18 @@
 # Lick It — Flutter app (connected to the Laravel backend)
 
-## The one thing to change for production: the base URL
+## Server address
 
-Everything the app sends goes through **`lib/config/api_config.dart`**. When the backend is live, either:
+Everything the app sends goes through **`lib/config/api_config.dart`**. It points at the live server,
+**`https://luckit.vads.ca/api/v1`**, so the app shows the same menu, flavours, toppings, stores and rewards
+as the website (all managed in the website admin).
 
-* edit `_defaultBaseUrl` in that file to `https://yourdomain.com/api/v1`, **or**
-* leave the file alone and build with
-  `flutter build apk --release --dart-define=API_BASE_URL=https://yourdomain.com/api/v1`
-  (same flag for `flutter build appbundle` / `flutter build ipa`).
+If the server can't be reached, the app falls back to a small built-in sample menu and the Menu tab shows
+a "Couldn't load the full menu · Retry" notice.
 
-For local testing the default is `http://10.0.2.2:8000/api/v1` (Android emulator → your computer). iOS simulator: `http://127.0.0.1:8000/api/v1`. Real phone: `http://<your-computer-LAN-IP>:8000/api/v1` (start the server with `php artisan serve --host=0.0.0.0`).
+To test against a backend on your own computer instead, build with
+`flutter run --dart-define=API_BASE_URL=http://10.0.2.2:8000/api/v1` (Android emulator → your computer).
+iOS simulator: `http://127.0.0.1:8000/api/v1`. Real phone: `http://<your-computer-LAN-IP>:8000/api/v1`
+(start the server with `php artisan serve --host=0.0.0.0`).
 
 ## Run it
 
@@ -125,12 +128,14 @@ lib/
   theme.dart           brand colours & fonts (Fredoka, DM Sans, Pacifico)
   data.dart            mock menu, cart/points/wallet maths, app state
   widgets.dart         buttons, chips, cards, map & barcode painters
+  plate_preview.dart   live drawing of the treat as options are picked
   screens/
     splash.dart        A01 Splash, A02 Welcome, A03 Sign in
     shell.dart         tab bar with the raised camera button
     home.dart          A04 / A04b Home (pickup & delivery)
     menu.dart          A05 Menu
     product.dart       A06 Product
+    build_your_own.dart Build your own waffle (same as the website builder)
     cart.dart          A07 / A07b Cart, A08 Checkout, A09 Split pay
     tracking.dart      A10 / A10b Pickup & delivery tracking
     rewards.dart       A11 Rewards, A12 Wallet
@@ -140,7 +145,7 @@ lib/
     orders.dart        A18 Your orders
     profile.dart       A19 Profile
 assets/                logo, store photo, bundled fonts
-app_icon/              pre-sized Android & iOS launcher icons
+app_icon/              Android & iOS launcher icons + launch screens
 ```
 
 To change prices, menu items or the demo user, edit `lib/data.dart`. To change brand colours, edit `lib/theme.dart`.

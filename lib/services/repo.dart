@@ -90,16 +90,59 @@ class Repo {
               imageUrl: p['image_url'] as String?,
               shakeFlag: bySlug[p['category']]!['is_shake'] as bool,
               scoopFlag: bySlug[p['category']]!['takes_scoops'] as bool,
+              featured: p['is_featured'] as bool? ?? false,
             ),
       ];
     }
 
     final fl = (d['flavours'] as List).cast<Map<String, dynamic>>();
     if (fl.isNotEmpty) {
-      scoopFlavours = [for (final f in fl) Flavour(f['name'] as String, _hex(f['dot_color'] as String?, C.pink))];
+      scoopFlavours = [
+        for (final f in fl)
+          Flavour(f['name'] as String, _hex(f['dot_color'] as String?, C.pink), (f['group'] ?? 'Flavours') as String),
+      ];
     }
     final tp = (d['toppings'] as List).cast<String>();
     if (tp.isNotEmpty) toppingOptions = List<String>.of(tp);
+
+    final st = (d['stores'] as List?)?.cast<Map<String, dynamic>>() ?? const [];
+    if (st.isNotEmpty) {
+      stores = [
+        for (final s in st)
+          StoreInfo(
+            id: (s['id'] as num?)?.toInt(),
+            name: (s['name'] ?? 'Lick It') as String,
+            address: (s['address'] ?? '') as String,
+            city: (s['city'] ?? '') as String,
+            hours: StoreInfo.clean(s['hours'] as String?),
+            phone: StoreInfo.clean(s['phone'] as String?),
+            lat: (s['latitude'] as num?)?.toDouble(),
+            lng: (s['longitude'] as num?)?.toDouble(),
+            offersDelivery: s['offers_delivery'] as bool? ?? true,
+          ),
+      ];
+    }
+    final settings = d['settings'] as Map<String, dynamic>;
+    Biz.phone = StoreInfo.clean(settings['business_phone'] as String?);
+    Biz.instagram = StoreInfo.clean(settings['instagram_handle'] as String?).replaceFirst('@', '');
+
+    // Build-your-own waffle products (hidden from the menu). Newer servers send
+    // them with their real prices; otherwise use the website's pricing rules.
+    final byo = (d['byo'] as List?)?.cast<Map<String, dynamic>>() ?? const [];
+    final byoPrice = {for (final p in byo) p['slug'] as String: (p['price'] as num).toDouble()};
+    byoItems = [
+      for (final m in byoItems)
+        MenuItem(
+          id: m.id,
+          name: m.name,
+          desc: m.desc,
+          category: m.category,
+          price: byoPrice[m.id] ??
+              (m.id == 'build-your-own' ? Rules.byoBase : Rules.byoBase + Rules.byoUpcharge),
+          tile: m.tile,
+          icon: m.icon,
+        ),
+    ];
 
     const tiles = [Color(0xFFF1E6D6), Color(0xFFFCE1EC), Color(0xFFFFF0C2), Color(0xFFE2F0D9)];
     final rw = (d['rewards'] as List).cast<Map<String, dynamic>>();
@@ -146,6 +189,32 @@ class Repo {
       if (e.status == 401) return false;
       return false;
     }
+  }
+
+  /// Catering, cakes & parties request (same form as the website's Locations page).
+  static Future<String> sendCatering({
+    required String name,
+    required String phone,
+    String? eventType,
+    DateTime? date,
+    int? guests,
+    String? interestedIn,
+    String? message,
+  }) async {
+    final msg = [
+      if (interestedIn != null) 'Interested in: $interestedIn',
+      if (message != null && message.trim().isNotEmpty) message.trim(),
+    ].join('\n');
+    final j = await Api.post('/catering-enquiries', {
+      'name': name,
+      'phone': phone,
+      if (eventType != null) 'event_type': eventType,
+      if (date != null)
+        'event_date': '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}',
+      if (guests != null) 'guests': guests,
+      if (msg.isNotEmpty) 'message': msg,
+    });
+    return (j['message'] ?? 'Thanks! We will be in touch shortly.') as String;
   }
 
   static Future<void> requestCode(String identifier) async {
@@ -277,7 +346,13 @@ class Repo {
     final j = await Api.post('/orders', {
       'items': [
         for (final l in app.cart)
-          {'product': l.item.id, 'quantity': l.qty, 'scoops': l.scoops, 'toppings': l.toppings},
+          {
+            'product': l.item.id,
+            'quantity': l.qty,
+            'scoops': l.scoops,
+            'toppings': l.toppings,
+            if (l.note != null) 'note': l.note,
+          },
       ],
       'mode': _modeApi(app.mode),
       'points_used': ptsUsed,
@@ -285,11 +360,14 @@ class Repo {
       'payment_method': method,
       if (method == 'split') 'wallet_amount': walletUsed,
       if (app.mode == Mode.delivery) 'delivery_address': app.address,
+      if (app.store.id != null) 'store_id': app.store.id,
+      if (app.orderNotes.trim().isNotEmpty) 'notes': app.orderNotes.trim(),
       if (scheduledFor != null) 'scheduled_for': scheduledFor.toUtc().toIso8601String(),
     });
     final order = _active(j['data'] as Map<String, dynamic>);
     applyUser(j['user'] as Map<String, dynamic>);
     app.cart.clear();
+    app.orderNotes = '';
     app.dealApplied = false;
     app.active = order;
     app.touch();

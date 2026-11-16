@@ -32,12 +32,19 @@ class PlatePreview extends StatefulWidget {
   final List<String> toppings;
   final double size;
 
+  /// Build-your-own only: waffle base ('Classic Belgian', 'Red Velvet',
+  /// 'Chocolate') and drizzle (name + colour). Null = work it out from [item].
+  final String? base;
+  final Flavour? drizzle;
+
   const PlatePreview({
     super.key,
     required this.item,
     required this.scoops,
     required this.toppings,
     required this.size,
+    this.base,
+    this.drizzle,
   });
 
   @override
@@ -55,6 +62,8 @@ class _PlatePreviewState extends State<PlatePreview>
   Set<String> _fresh = {};
 
   Set<String> _keysFor(PlatePreview w) => {
+    if (w.base != null) 'base:${w.base}',
+    if (w.drizzle != null) 'drizzle:${w.drizzle!.name}',
     for (final s in w.scoops) 'scoop:$s',
     for (final t in w.toppings) 'top:$t',
   };
@@ -92,7 +101,9 @@ class _PlatePreviewState extends State<PlatePreview>
     final colours = {for (final f in scoopFlavours) f.name: f.dot};
     final label = [
       widget.item.name,
+      if (widget.base != null) '${widget.base} base',
       if (widget.scoops.isNotEmpty) 'with ${widget.scoops.join(', ')}',
+      if (widget.drizzle != null) '${widget.drizzle!.name} drizzle',
       if (widget.toppings.isNotEmpty) 'topped with ${widget.toppings.join(', ')}',
     ].join(', ');
     return Semantics(
@@ -108,6 +119,8 @@ class _PlatePreviewState extends State<PlatePreview>
                 _Scoop(s, colours[s] ?? const Color(0xFFF25C9A)),
             ],
             toppings: List.of(widget.toppings),
+            base: widget.base,
+            drizzle: widget.drizzle,
             fresh: _fresh,
             anim: _anim,
           ),
@@ -130,6 +143,8 @@ class _PlatePainter extends CustomPainter {
   final MenuItem item;
   final List<_Scoop> scoops;
   final List<String> toppings;
+  final String? base;
+  final Flavour? drizzle;
   final Set<String> fresh;
   final Animation<double> anim;
 
@@ -137,6 +152,8 @@ class _PlatePainter extends CustomPainter {
     required this.item,
     required this.scoops,
     required this.toppings,
+    this.base,
+    this.drizzle,
     required this.fresh,
     required this.anim,
   }) : super(repaint: anim);
@@ -148,6 +165,8 @@ class _PlatePainter extends CustomPainter {
       o.item.id != item.id ||
       o.scoops.map((s) => s.name).join('|') != scoops.map((s) => s.name).join('|') ||
       o.toppings.join('|') != toppings.join('|') ||
+      o.base != base ||
+      o.drizzle?.name != drizzle?.name ||
       o.fresh != fresh;
 
   @override
@@ -157,7 +176,10 @@ class _PlatePainter extends CustomPainter {
     final v = vesselFor(item);
     switch (v) {
       case PlateVessel.waffle:
-        _waffle(canvas);
+        _animated(canvas, 'base:$base', const Offset(100, 112), pop: true, squish: true, () => _waffle(canvas));
+        if (drizzle != null) {
+          _animated(canvas, 'drizzle:${drizzle!.name}', const Offset(100, 112), pop: false, fade: true, () => _drizzle(canvas, drizzle!.dot));
+        }
       case PlateVessel.cup:
         _cupBack(canvas);
       case PlateVessel.cone:
@@ -203,14 +225,35 @@ class _PlatePainter extends CustomPainter {
   }
 
   /// Runs [draw]; if [key] was just added, scales it up (pop) or drops it in.
-  void _animated(Canvas canvas, String key, Offset c, VoidCallback draw, {required bool pop}) {
+  void _animated(
+    Canvas canvas,
+    String key,
+    Offset c,
+    VoidCallback draw, {
+    required bool pop,
+    bool squish = false,
+    bool fade = false,
+  }) {
     if (!fresh.contains(key) || _t >= 1) {
       draw();
       return;
     }
     final t = _t.clamp(0.0, 1.0);
+    if (squish) {
+      // base swap: a small bounce instead of fading the whole waffle out
+      final s = 0.92 + 0.08 * Curves.easeOutBack.transform(t);
+      canvas.save();
+      canvas.translate(c.dx, c.dy);
+      canvas.scale(s);
+      canvas.translate(-c.dx, -c.dy);
+      draw();
+      canvas.restore();
+      return;
+    }
     canvas.saveLayer(null, Paint()..color = Colors.black.withValues(alpha: math.min(1.0, t * 1.6)));
-    if (pop) {
+    if (fade) {
+      // opacity only
+    } else if (pop) {
       final s = Curves.easeOutBack.transform(t);
       canvas.translate(c.dx, c.dy);
       canvas.scale(s);
@@ -234,10 +277,11 @@ class _PlatePainter extends CustomPainter {
   void _waffle(Canvas canvas) {
     final id = '${item.id} ${item.name}'.toLowerCase();
     var body = const Color(0xFFC9852F), edge = const Color(0xFF9A5F1C);
-    if (id.contains('red velvet') || id.contains('red-velvet') || id.contains('redvelvet')) {
+    final b = base?.toLowerCase();
+    if (b == 'red velvet' || (b == null && (id.contains('red velvet') || id.contains('red-velvet') || id.contains('redvelvet')))) {
       body = const Color(0xFFB3263E);
       edge = const Color(0xFF7A1426);
-    } else if (id.contains('chocolate base') || id.contains('build-your-own-chocolate')) {
+    } else if (b == 'chocolate' || (b == null && (id.contains('chocolate base') || id.contains('build-your-own-chocolate')))) {
       body = const Color(0xFF6B3B26);
       edge = const Color(0xFF3E2117);
     }
@@ -256,6 +300,12 @@ class _PlatePainter extends CustomPainter {
         }
       }
     }
+  }
+
+  void _drizzle(Canvas canvas, Color c) {
+    canvas.drawPath(_svg('M44 92c14-10 22 8 36-2s20 10 34 0 22 8 40-4'), _stroke(c, 7));
+    canvas.drawPath(_svg('M50 130c16-8 22 6 38-2s22 8 38-2 18 4 26 0'), _stroke(c, 5));
+    canvas.drawPath(_svg('M60 152c12-6 18 4 30-1s18 5 30-1 12 3 18 0'), _stroke(c.withValues(alpha: .9), 4));
   }
 
   void _cupBack(Canvas canvas) {

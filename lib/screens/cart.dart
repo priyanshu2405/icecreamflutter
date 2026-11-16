@@ -215,14 +215,14 @@ class _CartScreenState extends State<CartScreen> {
   Widget _whereCard(BuildContext context, Mode mode) {
     final (title, sub) = switch (mode) {
       Mode.pickup => (
-        'Pickup at City Pkwy',
-        'Unit #5, 10302 City Pkwy, Surrey',
+        'Pickup at ${app.storeShort}',
+        app.store.address,
       ),
       Mode.delivery => (
         'Deliver to Home',
         app.addressLine,
       ),
-      Mode.dineIn => ('Dine-in at City Pkwy', 'Table 7 · we\'ll bring it over'),
+      Mode.dineIn => ('Dine-in at ${app.storeShort}', 'Table 7 · we\'ll bring it over'),
     };
     return CardBox(
       padding: const EdgeInsets.all(14),
@@ -349,7 +349,7 @@ class _CartLineCard extends StatelessWidget {
                 const SizedBox(height: 2),
                 Text(
                   app.lineSubtitle(line),
-                  maxLines: 2,
+                  maxLines: line.note == null ? 2 : 3,
                   overflow: TextOverflow.ellipsis,
                   style: dm(12.5, color: C.grey, height: 1.3),
                 ),
@@ -421,7 +421,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
           }
         : widget.scheduled!.format(context);
     return switch (app.mode) {
-      Mode.pickup => 'Pickup · City Pkwy · $when',
+      Mode.pickup => 'Pickup · ${app.storeShort} · $when',
       Mode.delivery => 'Delivery · Home · $when',
       Mode.dineIn => 'Dine-in · Table 7 · $when',
     };
@@ -546,6 +546,34 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                           style: dm(12.5, color: Colors.white70),
                         ),
                       ],
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  Text('Notes for the kitchen', style: fred(19)),
+                  const SizedBox(height: 10),
+                  TextFormField(
+                    initialValue: app.orderNotes,
+                    onChanged: (v) => app.orderNotes = v,
+                    minLines: 1,
+                    maxLines: 3,
+                    maxLength: 500,
+                    textCapitalization: TextCapitalization.sentences,
+                    style: dm(15.5),
+                    decoration: InputDecoration(
+                      hintText: 'Optional, e.g. extra napkins please',
+                      hintStyle: dm(15, color: C.grey),
+                      counterText: '',
+                      filled: true,
+                      fillColor: Colors.white,
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(18),
+                        borderSide: const BorderSide(color: C.line, width: 1.5),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(18),
+                        borderSide: const BorderSide(color: C.deep, width: 2),
+                      ),
                     ),
                   ),
                   const SizedBox(height: 18),

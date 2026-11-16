@@ -20,6 +20,9 @@ class MenuItem {
   final bool? shakeFlag;
   final bool? scoopFlag;
 
+  /// "Featured" in the website admin: shown as Fan favourites on Home.
+  final bool featured;
+
   const MenuItem({
     required this.id,
     required this.name,
@@ -32,6 +35,7 @@ class MenuItem {
     this.imageUrl,
     this.shakeFlag,
     this.scoopFlag,
+    this.featured = false,
   });
 
   bool get isShake => shakeFlag ?? category == 'Shakes';
@@ -231,13 +235,121 @@ List<MenuItem> menu = <MenuItem>[
   ),
 ];
 
-MenuItem itemById(String id) =>
-    menu.firstWhere((m) => m.id == id, orElse: () => menu.first);
+MenuItem itemById(String id) => menu.firstWhere(
+  (m) => m.id == id,
+  orElse: () => byoItems.firstWhere((m) => m.id == id, orElse: () => menu.first),
+);
+
+// ---------------------------------------------------------------------------
+// Build your own waffle (same builder as luckit.vads.ca/build-your-own)
+// ---------------------------------------------------------------------------
+
+/// Waffle bases, in the order the website shows them. Each maps to its own
+/// server product so the server charges the right base price.
+const byoBases = ['Classic Belgian', 'Red Velvet', 'Chocolate'];
+const byoMaxScoops = 3;
+
+/// The three hidden "build your own" products. Prices are replaced by the
+/// server's on launch (bootstrap `byo`), these are the seeded defaults.
+List<MenuItem> byoItems = [
+  for (final b in byoBases)
+    MenuItem(
+      id: byoSlugFor(b),
+      name: b == 'Classic Belgian' ? 'Build-your-own waffle' : 'Build-your-own waffle ($b base)',
+      desc: 'Custom waffle from the builder',
+      category: 'Build your own',
+      price: b == 'Classic Belgian' ? 11.95 : 12.95,
+      tile: const Color(0xFFFDE6EF),
+      icon: Icons.grid_view_rounded,
+    ),
+];
+
+String byoSlugFor(String base) => switch (base) {
+  'Red Velvet' => 'build-your-own-red-velvet',
+  'Chocolate' => 'build-your-own-chocolate',
+  _ => 'build-your-own',
+};
+
+MenuItem byoItemFor(String base) {
+  final slug = byoSlugFor(base);
+  return byoItems.firstWhere((m) => m.id == slug, orElse: () => byoItems.first);
+}
+
+/// Drizzles offered by the builder (name + colour, as on the website).
+const byoDrizzles = <Flavour>[
+  Flavour('Nutella', Color(0xFF5A2E1E)),
+  Flavour('Lotus Biscoff', Color(0xFFB5732F)),
+  Flavour('Belgian chocolate', Color(0xFF3E2117)),
+  Flavour('White chocolate', Color(0xFFF3E9DC)),
+  Flavour('Caramel', Color(0xFFD8902F)),
+  Flavour('Pistachio cream', Color(0xFF9CCC65)),
+];
+
+// ---------------------------------------------------------------------------
+// Stores and business details (from the website admin)
+// ---------------------------------------------------------------------------
+
+class StoreInfo {
+  final int? id;
+  final String name;
+  final String address;
+  final String city;
+  final String hours;
+  final String phone;
+  final double? lat;
+  final double? lng;
+  final bool offersDelivery;
+
+  const StoreInfo({
+    this.id,
+    required this.name,
+    required this.address,
+    required this.city,
+    this.hours = '',
+    this.phone = '',
+    this.lat,
+    this.lng,
+    this.offersDelivery = true,
+  });
+
+  /// Admin placeholders like "[Your opening hours]" aren't shown to customers.
+  static String clean(String? v) {
+    final t = (v ?? '').trim();
+    return t.startsWith('[') && t.endsWith(']') ? '' : t;
+  }
+}
+
+List<StoreInfo> stores = const [
+  StoreInfo(
+    name: 'Lick It · City Pkwy',
+    address: 'Unit #5, 10302 City Pkwy, Surrey, BC V3T 4Y8',
+    city: 'Surrey',
+    lat: 49.1913,
+    lng: -122.849,
+  ),
+];
+
+Uri directionsTo(StoreInfo s) => Uri.parse(
+  'https://www.google.com/maps/dir/?api=1&destination='
+  '${Uri.encodeComponent(s.lat != null && s.lng != null ? '${s.lat},${s.lng}' : s.address)}',
+);
+
+Uri telLink(String phone) => Uri(scheme: 'tel', path: phone.replaceAll(RegExp(r'[^0-9+]'), ''));
+
+/// Business phone and Instagram handle from the admin settings.
+class Biz {
+  static String phone = '';
+  static String instagram = '';
+}
+
+/// Menu items suggested under the builder ("Goes great with your waffle").
+const byoPairings = ['Strawberry Blush', 'Vanilla Velvet Cloud', 'Oreo Dream', 'Dubai Cup'];
 
 class Flavour {
   final String name;
   final Color dot;
-  const Flavour(this.name, this.dot);
+  final String group; // "The Classics", "Fruit Favourites"… (from the admin)
+  const Flavour(this.name, this.dot, [this.group = 'Flavours']);
 }
 
 List<Flavour> scoopFlavours = <Flavour>[
@@ -271,6 +383,8 @@ class Rules {
   static int photoPoints = 25;
   static int ratingPoints = 15;
   static bool orderingEnabled = true;
+  static double byoBase = 11.95; // build-your-own: Classic Belgian price
+  static double byoUpcharge = 1.00; // build-your-own: Red Velvet / Chocolate extra
 
   static void apply(Map<String, dynamic> s) {
     double d(String k, double f) => (s[k] as num?)?.toDouble() ?? f;
@@ -284,6 +398,8 @@ class Rules {
     photoPoints = (s['photo_share_points'] as num?)?.toInt() ?? photoPoints;
     ratingPoints = (s['rating_points'] as num?)?.toInt() ?? ratingPoints;
     orderingEnabled = s['ordering_enabled'] as bool? ?? orderingEnabled;
+    byoBase = d('byo_base_price', byoBase);
+    byoUpcharge = d('byo_base_upcharge', byoUpcharge);
   }
 }
 
@@ -297,17 +413,22 @@ class CartLine {
   final List<String> toppings;
   int qty;
 
-  CartLine(this.item, this.scoops, this.toppings, this.qty);
+  /// Kitchen note sent with the line (build-your-own: base, drizzle and the
+  /// customer's own note).
+  final String? note;
+
+  CartLine(this.item, this.scoops, this.toppings, this.qty, {this.note});
 
   double get baseUnit =>
       item.price +
       scoops.length * Rules.scoop +
       toppings.length * Rules.topping;
 
-  bool sameAs(MenuItem i, List<String> s, List<String> t) =>
+  bool sameAs(MenuItem i, List<String> s, List<String> t, [String? n]) =>
       i.id == item.id &&
       s.join('|') == scoops.join('|') &&
-      t.join('|') == toppings.join('|');
+      t.join('|') == toppings.join('|') &&
+      (n ?? '') == (note ?? '');
 }
 
 enum Mode { pickup, delivery, dineIn }
@@ -422,6 +543,18 @@ class AppState extends ChangeNotifier {
   bool sharedPhoto = false;
   bool storeAlerts = false;
 
+  /// Store the customer orders from (null = first store) and their kitchen note.
+  int? storeId;
+  String orderNotes = '';
+  StoreInfo get store => stores.firstWhere((s) => s.id == storeId, orElse: () => stores.first);
+
+  /// "City Pkwy" from "Lick It · City Pkwy".
+  String get storeShort {
+    final n = store.name;
+    final i = n.lastIndexOf('·');
+    return (i >= 0 ? n.substring(i + 1) : n).trim();
+  }
+
   final List<PastOrder> past = [];
 
   /// Clears everything that belongs to the signed-in customer.
@@ -507,15 +640,16 @@ class AppState extends ChangeNotifier {
     List<String> scoops = const [],
     List<String> toppings = const [],
     int qty = 1,
+    String? note,
   }) {
     for (final l in cart) {
-      if (l.sameAs(item, scoops, toppings)) {
+      if (l.sameAs(item, scoops, toppings, note)) {
         l.qty += qty;
         notifyListeners();
         return;
       }
     }
-    cart.add(CartLine(item, List.of(scoops), List.of(toppings), qty));
+    cart.add(CartLine(item, List.of(scoops), List.of(toppings), qty, note: note));
     notifyListeners();
   }
 
@@ -529,6 +663,9 @@ class AppState extends ChangeNotifier {
 
   String lineSubtitle(CartLine l) {
     final parts = <String>[...l.scoops.map((s) => '$s scoop'), ...l.toppings];
+    if (l.note != null && l.note!.isNotEmpty) {
+      return [l.note!, if (parts.isNotEmpty) '+ ${parts.join(' · ')}'].join('\n');
+    }
     if (parts.isNotEmpty) return '+ ${parts.join(' · ')}';
     if (l.item.isShake) {
       return dealApplied

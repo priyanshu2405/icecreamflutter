@@ -107,7 +107,7 @@ class ProfileTab extends StatelessWidget {
                   _row(
                     'S',
                     'Favourite store',
-                    'City Pkwy',
+                    app.storeShort,
                     () => push(context, const StoresScreen()),
                   ),
                   _row(

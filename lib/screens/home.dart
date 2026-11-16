@@ -5,6 +5,8 @@ import '../services/api_client.dart';
 import '../services/repo.dart';
 import '../theme.dart';
 import '../widgets.dart';
+import 'build_your_own.dart';
+import 'catering.dart';
 import 'flavour_finder.dart';
 import 'tracking.dart';
 import 'photo_booth.dart';
@@ -129,7 +131,7 @@ class HomeTab extends StatelessWidget {
                                 child: Text(
                                   delivery
                                       ? 'Deliver to ${app.addressLine} · 30–40 min'
-                                      : 'Pickup · City Pkwy, Surrey · open now',
+                                      : 'Pickup · ${app.storeShort}${app.store.city.isEmpty ? '' : ', ${app.store.city}'}',
                                   overflow: TextOverflow.ellipsis,
                                   style: dm(14, color: Colors.white),
                                 ),
@@ -185,11 +187,16 @@ class HomeTab extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 14),
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 16),
+                child: ByoBanner(),
+              ),
+              const SizedBox(height: 18),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: Row(
                   children: [
-                    Expanded(child: Text('Picked for you', style: fred(20))),
+                    Expanded(child: Text('Fan favourites', style: fred(20))),
                     GestureDetector(
                       onTap: () => push(context, const FlavourFinderScreen()),
                       child: Container(
@@ -231,20 +238,8 @@ class HomeTab extends StatelessWidget {
                   scrollDirection: Axis.horizontal,
                   padding: const EdgeInsets.symmetric(horizontal: 16),
                   children: [
-                    _PickCard(
-                      item: itemById('signature'),
-                      tag: 'You love chocolate',
-                    ),
-                    _PickCard(
-                      item: itemById('pista'),
-                      tag: 'New',
-                      tile: const Color(0xFFE2F0D9),
-                    ),
-                    _PickCard(
-                      item: itemById('goldenhour'),
-                      tag: '10% off nearby',
-                    ),
-                    _PickCard(item: itemById('mango'), tag: 'Ordered before'),
+                    // Fan favourites: whatever is marked "Featured" in the admin.
+                    for (final m in _picks()) _PickCard(item: m, tag: m.tag ?? 'Fan favourite'),
                   ],
                 ),
               ),
@@ -297,12 +292,26 @@ class HomeTab extends StatelessWidget {
                   ),
                 ),
               ),
+              const SizedBox(height: 12),
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 16),
+                child: CateringCard(),
+              ),
             ],
           ),
         );
       },
     );
   }
+}
+
+List<MenuItem> _picks() {
+  final featured = menu.where((m) => m.featured).toList();
+  if (featured.isNotEmpty) return featured;
+  return ['signature', 'pista', 'goldenhour', 'mango']
+      .map(itemById)
+      .toSet()
+      .toList(); // offline sample menu
 }
 
 class _ModeToggle extends StatelessWidget {
@@ -417,8 +426,7 @@ class _NearbyBanner extends StatelessWidget {
 class _PickCard extends StatelessWidget {
   final MenuItem item;
   final String tag;
-  final Color? tile;
-  const _PickCard({required this.item, required this.tag, this.tile});
+  const _PickCard({required this.item, required this.tag});
 
   @override
   Widget build(BuildContext context) {
@@ -434,7 +442,7 @@ class _PickCard extends StatelessWidget {
             children: [
               Expanded(
                 child: Container(
-                  color: tile ?? item.tile,
+                  color: item.tile,
                   padding: const EdgeInsets.all(10),
                   alignment: Alignment.topLeft,
                   child: Container(

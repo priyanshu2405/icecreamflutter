@@ -1,12 +1,23 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'theme.dart';
 
 // ---------------------------------------------------------------------------
 // Navigation + feedback helpers
 // ---------------------------------------------------------------------------
+
+/// Opens a web page, map, dialler or email app. Shows a message if nothing on
+/// the phone can open it.
+Future<void> openLink(BuildContext context, Uri uri) async {
+  var ok = false;
+  try {
+    ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+  } catch (_) {}
+  if (!ok && context.mounted) toast(context, "Couldn't open that on this phone");
+}
 
 Future<T?> push<T>(BuildContext context, Widget page) =>
     Navigator.of(context).push<T>(MaterialPageRoute(builder: (_) => page));

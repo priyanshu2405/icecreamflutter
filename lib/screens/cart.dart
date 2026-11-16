@@ -21,16 +21,27 @@ class CartScreen extends StatefulWidget {
 }
 
 class _CartScreenState extends State<CartScreen> {
-  TimeOfDay? _scheduled;
+  ScheduledTime? _scheduled;
 
   Future<void> _schedule() async {
-    final now = TimeOfDay.now();
-    final t = await showTimePicker(
-      context: context,
-      initialTime: TimeOfDay(hour: (now.hour + 1) % 24, minute: 0),
-      helpText: 'Schedule for later',
-    );
-    if (t != null) setState(() => _scheduled = t);
+    final days = scheduleDays;
+    if (days == null) {
+      // older server: any time
+      final now = TimeOfDay.now();
+      final t = await showTimePicker(
+        context: context,
+        initialTime: TimeOfDay(hour: (now.hour + 1) % 24, minute: 0),
+        helpText: 'Schedule for later',
+      );
+      if (t == null || !mounted) return;
+      final n = DateTime.now();
+      var at = DateTime(n.year, n.month, n.day, t.hour, t.minute);
+      if (at.isBefore(n)) at = at.add(const Duration(days: 1));
+      setState(() => _scheduled = ScheduledTime(t.format(context), at: at));
+      return;
+    }
+    final picked = await showSlotPicker(context, days, _scheduled?.slot);
+    if (picked != null && mounted) setState(() => _scheduled = picked);
   }
 
   @override
@@ -70,14 +81,15 @@ class _CartScreenState extends State<CartScreen> {
                                   onTap: () =>
                                       setState(() => _scheduled = null),
                                 ),
-                                PillChip(
-                                  _scheduled == null
-                                      ? 'Schedule for later'
-                                      : 'Scheduled · ${_scheduled!.format(context)}',
-                                  selected: _scheduled != null,
-                                  fontSize: 13.5,
-                                  onTap: _schedule,
-                                ),
+                                if (scheduleDays == null || scheduleDays!.isNotEmpty)
+                                  PillChip(
+                                    _scheduled == null
+                                        ? 'Schedule for later'
+                                        : 'Scheduled · ${_scheduled!.label}',
+                                    selected: _scheduled != null,
+                                    fontSize: 13.5,
+                                    onTap: _schedule,
+                                  ),
                               ],
                             ),
                             const SizedBox(height: 14),
@@ -215,14 +227,14 @@ class _CartScreenState extends State<CartScreen> {
   Widget _whereCard(BuildContext context, Mode mode) {
     final (title, sub) = switch (mode) {
       Mode.pickup => (
-        'Pickup at City Pkwy',
-        'Unit #5, 10302 City Pkwy, Surrey',
+        'Pickup at ${app.storeShort}',
+        app.store.address,
       ),
       Mode.delivery => (
         'Deliver to Home',
         app.addressLine,
       ),
-      Mode.dineIn => ('Dine-in at City Pkwy', 'Table 7 · we\'ll bring it over'),
+      Mode.dineIn => ('Dine-in at ${app.storeShort}', 'Table 7 · we\'ll bring it over'),
     };
     return CardBox(
       padding: const EdgeInsets.all(14),
@@ -349,7 +361,7 @@ class _CartLineCard extends StatelessWidget {
                 const SizedBox(height: 2),
                 Text(
                   app.lineSubtitle(line),
-                  maxLines: 2,
+                  maxLines: line.note == null ? 2 : 3,
                   overflow: TextOverflow.ellipsis,
                   style: dm(12.5, color: C.grey, height: 1.3),
                 ),
@@ -398,10 +410,81 @@ class _BottomBar extends StatelessWidget {
 // A08 Checkout
 // ---------------------------------------------------------------------------
 
-enum PayMethod { card, wallet, tap, gift }
+enum PayMethod { counter, card, wallet, tap, gift }
+
+/// A "schedule for later" choice: a server slot, or (older servers) any time.
+class ScheduledTime {
+  final String label;
+  final String? slot;
+  final DateTime? at;
+  const ScheduledTime(this.label, {this.slot, this.at});
+}
+
+/// Day tabs and time slots from the server, same as the website's checkout.
+Future<ScheduledTime?> showSlotPicker(BuildContext context, List<ScheduleDay> days, String? current) {
+  var day = 0;
+  for (var i = 0; i < days.length; i++) {
+    if (days[i].slots.any((s) => s.value == current)) day = i;
+  }
+  return showModalBottomSheet<ScheduledTime>(
+    context: context,
+    backgroundColor: C.cream,
+    isScrollControlled: true,
+    shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(28))),
+    builder: (ctx) => StatefulBuilder(
+      builder: (ctx, set) => SafeArea(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxHeight: MediaQuery.of(ctx).size.height * 0.7),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Schedule for later', style: fred(22)),
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 8,
+                  children: [
+                    for (var i = 0; i < days.length; i++)
+                      PillChip(days[i].label, selected: day == i, onTap: () => set(() => day = i)),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                Flexible(
+                  child: SingleChildScrollView(
+                    child: Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        for (final s in days[day].slots)
+                          PillChip(
+                            s.label,
+                            selected: s.value == current,
+                            fontSize: 13.5,
+                            onTap: () => Navigator.pop(
+                              ctx,
+                              ScheduledTime(
+                                days[day].label == 'Today' ? s.label : '${days[day].label} ${s.label}',
+                                slot: s.value,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+}
 
 class CheckoutScreen extends StatefulWidget {
-  final TimeOfDay? scheduled;
+  final ScheduledTime? scheduled;
   const CheckoutScreen({super.key, this.scheduled});
 
   @override
@@ -410,7 +493,7 @@ class CheckoutScreen extends StatefulWidget {
 
 class _CheckoutScreenState extends State<CheckoutScreen> {
   late int _pts = app.points >= 200 ? 200 : 0;
-  PayMethod _pay = PayMethod.card;
+  PayMethod _pay = PayMethod.counter; // pay at pickup / on delivery, like the website
 
   String _summary(BuildContext context) {
     final when = widget.scheduled == null
@@ -419,9 +502,9 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
             Mode.delivery => 'ASAP (30–40 min)',
             Mode.dineIn => 'ASAP',
           }
-        : widget.scheduled!.format(context);
+        : widget.scheduled!.label;
     return switch (app.mode) {
-      Mode.pickup => 'Pickup · City Pkwy · $when',
+      Mode.pickup => 'Pickup · ${app.storeShort} · $when',
       Mode.delivery => 'Delivery · Home · $when',
       Mode.dineIn => 'Dine-in · Table 7 · $when',
     };
@@ -440,18 +523,17 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       toast(context, 'Enter a gift card code first, or choose another method');
       return;
     }
-    DateTime? when;
-    final t = widget.scheduled;
-    if (t != null) {
-      final n = DateTime.now();
-      when = DateTime(n.year, n.month, n.day, t.hour, t.minute);
-      if (when.isBefore(n)) when = when.add(const Duration(days: 1));
+    if (!Rules.onlinePayments && (_pay == PayMethod.card || _pay == PayMethod.tap)) {
+      toast(context, 'Online payment is not available right now. Please pay at the counter or use your wallet.');
+      return;
     }
     await runPayment(
       context,
       ptsUsed: _pts,
       walletUsed: _pay == PayMethod.wallet ? total : 0,
-      scheduledFor: when,
+      payAtStore: _pay == PayMethod.counter,
+      scheduledFor: widget.scheduled?.at,
+      scheduledSlot: widget.scheduled?.slot,
     );
   }
 
@@ -549,6 +631,34 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                     ),
                   ),
                   const SizedBox(height: 18),
+                  Text('Notes for the kitchen', style: fred(19)),
+                  const SizedBox(height: 10),
+                  TextFormField(
+                    initialValue: app.orderNotes,
+                    onChanged: (v) => app.orderNotes = v,
+                    minLines: 1,
+                    maxLines: 3,
+                    maxLength: 500,
+                    textCapitalization: TextCapitalization.sentences,
+                    style: dm(15.5),
+                    decoration: InputDecoration(
+                      hintText: 'Optional, e.g. extra napkins please',
+                      hintStyle: dm(15, color: C.grey),
+                      counterText: '',
+                      filled: true,
+                      fillColor: Colors.white,
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(18),
+                        borderSide: const BorderSide(color: C.line, width: 1.5),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(18),
+                        borderSide: const BorderSide(color: C.deep, width: 2),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 18),
                   Text('Pay with', style: fred(19)),
                   const SizedBox(height: 10),
                   CardBox(
@@ -556,10 +666,14 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                     child: Column(
                       children: [
                         _payRow(
-                          PayMethod.card,
-                          const MiniBadge('VISA', Color(0xFF1A1F71)),
-                          'Visa •• 4821',
-                          'Expires 08/29',
+                          PayMethod.counter,
+                          const MiniBadge('PAY', C.deep),
+                          switch (app.mode) {
+                            Mode.pickup => 'Pay at pickup',
+                            Mode.delivery => 'Pay on delivery',
+                            Mode.dineIn => 'Pay at the counter',
+                          },
+                          'Card or cash at the counter',
                         ),
                         const Divider(height: 1, color: C.line),
                         _payRow(
@@ -568,25 +682,35 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                           'Lick It Wallet',
                           '${money(app.wallet)} balance',
                         ),
-                        const Divider(height: 1, color: C.line),
-                        _payRow(
-                          PayMethod.tap,
-                          const MiniBadge('PAY', C.ink),
-                          isIOS ? 'Apple Pay' : 'Google Pay',
-                          'Pay with one tap',
-                        ),
-                        const Divider(height: 1, color: C.line),
-                        _payRow(
-                          PayMethod.gift,
-                          const MiniBadge('GIFT', C.waffle),
-                          'Gift card',
-                          'Add a code',
-                        ),
+                        // Online payment options only when the server accepts them (same as the website).
+                        if (Rules.onlinePayments) ...[
+                          const Divider(height: 1, color: C.line),
+                          _payRow(
+                            PayMethod.card,
+                            const MiniBadge('VISA', Color(0xFF1A1F71)),
+                            'Visa •• 4821',
+                            'Expires 08/29',
+                          ),
+                          const Divider(height: 1, color: C.line),
+                          _payRow(
+                            PayMethod.tap,
+                            const MiniBadge('PAY', C.ink),
+                            isIOS ? 'Apple Pay' : 'Google Pay',
+                            'Pay with one tap',
+                          ),
+                          const Divider(height: 1, color: C.line),
+                          _payRow(
+                            PayMethod.gift,
+                            const MiniBadge('GIFT', C.waffle),
+                            'Gift card',
+                            'Add a code',
+                          ),
+                        ],
                       ],
                     ),
                   ),
-                  const SizedBox(height: 14),
-                  Dashed(
+                  if (Rules.onlinePayments) const SizedBox(height: 14),
+                  if (Rules.onlinePayments) Dashed(
                     fill: C.blush,
                     onTap: () => push(context, SplitPayScreen(ptsUsed: _pts)),
                     child: Padding(
@@ -738,6 +862,8 @@ Future<void> runPayment(
   required int ptsUsed,
   double walletUsed = 0,
   DateTime? scheduledFor,
+  String? scheduledSlot,
+  bool payAtStore = false,
 }) async {
   final nav = Navigator.of(context);
   final messenger = ScaffoldMessenger.of(context);
@@ -775,6 +901,8 @@ Future<void> runPayment(
       ptsUsed: ptsUsed,
       walletUsed: walletUsed,
       scheduledFor: scheduledFor,
+      scheduledSlot: scheduledSlot,
+      payAtStore: payAtStore,
     );
   } on ApiException catch (e) {
     nav.pop(); // close dialog

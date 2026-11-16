@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../data.dart';
 import '../theme.dart';
 import '../widgets.dart';
+import 'catering.dart';
 
 // ---------------------------------------------------------------------------
 // A13 Stores
@@ -96,7 +97,10 @@ class StoresScreen extends StatelessWidget {
                       children: [
                         const Icon(Icons.search, color: C.grey),
                         const SizedBox(width: 10),
-                        Text('Surrey, BC', style: dm(16)),
+                        Text(
+                          stores.first.city.isEmpty ? 'Lick It stores' : '${stores.first.city}, BC',
+                          style: dm(16),
+                        ),
                       ],
                     ),
                   ),
@@ -136,139 +140,19 @@ class StoresScreen extends StatelessWidget {
                   Row(
                     children: [
                       Expanded(child: Text('Nearby stores', style: fred(22))),
-                      Text('1 open', style: dm(13, color: C.grey)),
+                      Text(
+                        '${stores.length} ${stores.length == 1 ? 'store' : 'stores'}',
+                        style: dm(13, color: C.grey),
+                      ),
                     ],
                   ),
                   const SizedBox(height: 12),
-                  Container(
-                    clipBehavior: Clip.antiAlias,
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(22),
-                      border: Border.all(color: C.deep, width: 2),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        SizedBox(
-                          height: 130,
-                          child: Image.asset(
-                            'assets/images/store.jpg',
-                            fit: BoxFit.cover,
-                            alignment: const Alignment(0, -0.2),
-                          ),
-                        ),
-                        Padding(
-                          padding: const EdgeInsets.all(14),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: Text(
-                                      'City Parkway',
-                                      style: fred(20),
-                                    ),
-                                  ),
-                                  Text(
-                                    '0.4 km',
-                                    style: dm(15, weight: FontWeight.w700),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 2),
-                              Text.rich(
-                                TextSpan(
-                                  style: dm(13.5, color: C.grey),
-                                  children: [
-                                    const TextSpan(
-                                      text:
-                                          'Unit #5, 10302 City Pkwy, Surrey · ',
-                                    ),
-                                    TextSpan(
-                                      text: 'Open now',
-                                      style: dm(
-                                        13.5,
-                                        color: C.green,
-                                        weight: FontWeight.w700,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              const SizedBox(height: 10),
-                              Wrap(
-                                spacing: 6,
-                                runSpacing: 6,
-                                children: [
-                                  for (final t in [
-                                    'Pickup',
-                                    'Delivery',
-                                    'Dine-in',
-                                    'Photo booth',
-                                  ])
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 10,
-                                        vertical: 5,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: C.blush,
-                                        borderRadius: BorderRadius.circular(14),
-                                      ),
-                                      child: Text(
-                                        t,
-                                        style: dm(
-                                          12.5,
-                                          weight: FontWeight.w700,
-                                        ),
-                                      ),
-                                    ),
-                                ],
-                              ),
-                              const SizedBox(height: 10),
-                              Text(
-                                'Open today 12:00 pm – 11:00 pm',
-                                style: dm(13, color: C.grey),
-                              ),
-                              const SizedBox(height: 12),
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: Btn(
-                                      'Order here',
-                                      height: 50,
-                                      fontSize: 16,
-                                      onTap: () {
-                                        app.setMode(Mode.pickup);
-                                        app.setTab(1);
-                                        Navigator.of(context)
-                                            .popUntil((r) => r.isFirst);
-                                      },
-                                    ),
-                                  ),
-                                  const SizedBox(width: 10),
-                                  Expanded(
-                                    child: Btn(
-                                      'Directions',
-                                      style: BtnStyle.outline,
-                                      height: 50,
-                                      fontSize: 16,
-                                      onTap: () => toast(
-                                        context,
-                                        'Opens Maps with directions in the full app',
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+                  for (var i = 0; i < stores.length; i++) ...[
+                    if (i > 0) const SizedBox(height: 12),
+                    _StoreCard(store: stores[i], highlight: i == 0),
+                  ],
+                  const SizedBox(height: 12),
+                  const CateringCard(),
                   const SizedBox(height: 12),
                   Dashed(
                     color: const Color(0xFFD8C6CD),
@@ -317,8 +201,152 @@ class StoresScreen extends StatelessWidget {
                       ),
                     ),
                   ),
+                  if (Biz.instagram.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    CardBox(
+                      color: C.blush,
+                      border: C.blush,
+                      onTap: () => openLink(context, Uri.parse('https://instagram.com/${Biz.instagram}')),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.camera_alt_outlined, color: C.deep),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text.rich(
+                              TextSpan(
+                                style: dm(14),
+                                children: [
+                                  TextSpan(text: 'Tag us. Get featured. ', style: dm(14, weight: FontWeight.w700)),
+                                  TextSpan(text: 'Follow @${Biz.instagram}'),
+                                ],
+                              ),
+                            ),
+                          ),
+                          const Icon(Icons.open_in_new_rounded, size: 18, color: C.grey),
+                        ],
+                      ),
+                    ),
+                  ],
                 ],
               ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// One store from the admin: photo, address, hours, services, and buttons.
+class _StoreCard extends StatelessWidget {
+  final StoreInfo store;
+  final bool highlight;
+  const _StoreCard({required this.store, this.highlight = false});
+
+  @override
+  Widget build(BuildContext context) {
+    final phone = store.phone.isNotEmpty ? store.phone : Biz.phone;
+    return Container(
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: highlight ? C.deep : C.line, width: highlight ? 2 : 1.2),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SizedBox(
+            height: 130,
+            child: Image.asset(
+              'assets/images/store.jpg',
+              fit: BoxFit.cover,
+              alignment: const Alignment(0, -0.2),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(store.name, style: fred(20)),
+                const SizedBox(height: 2),
+                Text(store.address, style: dm(13.5, color: C.grey, height: 1.35)),
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    for (final t in [
+                      'Pickup',
+                      if (store.offersDelivery) 'Delivery',
+                      'Dine-in',
+                      'Photo booth',
+                    ])
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                        decoration: BoxDecoration(
+                          color: C.blush,
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: Text(t, style: dm(12.5, weight: FontWeight.w700)),
+                      ),
+                  ],
+                ),
+                if (store.hours.isNotEmpty || phone.isNotEmpty) ...[
+                  const SizedBox(height: 10),
+                  if (store.hours.isNotEmpty)
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Icon(Icons.schedule_rounded, size: 16, color: C.grey),
+                        const SizedBox(width: 6),
+                        Expanded(child: Text(store.hours, style: dm(13, color: C.grey))),
+                      ],
+                    ),
+                  if (phone.isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    GestureDetector(
+                      onTap: () => openLink(context, telLink(phone)),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.call_outlined, size: 16, color: C.deep),
+                          const SizedBox(width: 6),
+                          Text(phone, style: dm(13, color: C.deep, weight: FontWeight.w700)),
+                        ],
+                      ),
+                    ),
+                  ],
+                ],
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Btn(
+                        'Order here',
+                        height: 50,
+                        fontSize: 16,
+                        onTap: () {
+                          app.storeId = store.id;
+                          app.setMode(Mode.pickup);
+                          app.setTab(1);
+                          Navigator.of(context).popUntil((r) => r.isFirst);
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Btn(
+                        'Directions',
+                        style: BtnStyle.outline,
+                        height: 50,
+                        fontSize: 16,
+                        onTap: () => openLink(context, directionsTo(store)),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
             ),
           ),
         ],

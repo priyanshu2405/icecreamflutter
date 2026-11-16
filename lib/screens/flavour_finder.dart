@@ -1,6 +1,10 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../data.dart';
+import '../services/api_client.dart';
+import '../services/repo.dart';
 import '../theme.dart';
 import '../widgets.dart';
 import 'cart.dart';
@@ -55,7 +59,7 @@ const _picks = <String, List<_Pick>>{
     _Pick(
       'pista',
       89,
-      'New this month: pistachio cream & kunafa crunch. Popular at City Pkwy tonight.',
+      'New this month: pistachio cream & kunafa crunch.',
     ),
     _Pick(
       'redvelvet',
@@ -126,6 +130,7 @@ class _FlavourFinderScreenState extends State<FlavourFinderScreen> {
   String _mood = '';
   int _idx = 0;
   bool _busy = false;
+  List<_Pick> _list = const []; // picks for the current question
 
   @override
   void dispose() {
@@ -169,17 +174,35 @@ class _FlavourFinderScreenState extends State<FlavourFinderScreen> {
     return 'Something new';
   }
 
+  /// Real picks from the live menu: the website's AI assistant when it's on,
+  /// otherwise the server's keyword picks, otherwise the built-in ones.
+  Future<(String, List<_Pick>)> _findPicks(String mood, String userText, bool noNuts) async {
+    List<_Pick> fromServer(List<AiPick> ps) => [
+      for (var i = 0; i < ps.length; i++)
+        _Pick(ps[i].slug, math.max(70, 96 - i * 5), ps[i].reason.isNotEmpty ? ps[i].reason : itemById(ps[i].slug).desc),
+    ];
+    if (Rules.aiEnabled) {
+      final r = await Repo.aiMenu(userText);
+      if (r != null) return (r.message.isNotEmpty ? r.message : "Here's what I'd pick:", fromServer(r.picks));
+    }
+    if (Api.hasToken) {
+      final ps = await Repo.flavourFinder(userText);
+      if (ps.isNotEmpty) {
+        return (noNuts ? "Got it, nut-free. Here's my top pick:" : "Here's my top pick from today's menu:", fromServer(ps));
+      }
+    }
+    var list = _picks[mood]!;
+    if (noNuts) {
+      list = list.where((p) => p.itemId != 'pista' && p.itemId != 'rockyroad').toList();
+      if (list.isEmpty) list = _picks['Fruity']!;
+    }
+    return (noNuts ? "Got it, nut-free. Here's my top pick:" : "Here's my top pick:", list);
+  }
+
   Future<void> _ask(String mood, String userText) async {
     if (_busy) return;
     _busy = true;
-    var list = _picks[mood]!;
     final noNuts = userText.toLowerCase().contains('nut');
-    if (noNuts) {
-      list = list
-          .where((p) => p.itemId != 'pista' && p.itemId != 'rockyroad')
-          .toList();
-      if (list.isEmpty) list = _picks['Fruity']!;
-    }
     setState(() {
       _mood = mood;
       _idx = 0;
@@ -187,17 +210,12 @@ class _FlavourFinderScreenState extends State<FlavourFinderScreen> {
       _msgs.add(const _Msg(typing: true));
     });
     _toBottom();
-    await Future<void>.delayed(const Duration(milliseconds: 1100));
+    final (intro, list) = await _findPicks(mood, userText, noNuts);
     if (!mounted) return;
+    _list = list;
     setState(() {
       _msgs.removeLast();
-      _msgs.add(
-        _Msg(
-          text: noNuts
-              ? "Got it, nut-free. Based on your past orders and what's popular at City Pkwy tonight, here's my top pick:"
-              : "Based on your past orders and what's popular at City Pkwy tonight, here's my top pick:",
-        ),
-      );
+      _msgs.add(_Msg(text: intro));
       _msgs.add(_Msg(pick: list.first));
     });
     _busy = false;
@@ -207,7 +225,7 @@ class _FlavourFinderScreenState extends State<FlavourFinderScreen> {
   Future<void> _another() async {
     if (_busy || _mood.isEmpty) return;
     _busy = true;
-    final list = _picks[_mood]!;
+    final list = _list.isNotEmpty ? _list : _picks[_mood]!;
     _idx = (_idx + 1) % list.length;
     setState(() {
       _msgs.add(const _Msg(user: true, text: 'Show me another'));

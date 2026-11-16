@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../data.dart';
@@ -25,8 +27,47 @@ class _ProductScreenState extends State<ProductScreen> {
 
   MenuItem get item => widget.item;
 
-  double get _unit => app.unitFor(item, _scoops.length, _toppings.length);
+  // Ice Cream items work like the website: pick the flavours the item includes
+  // ("Single/Double/Triple" in its name), then up to 4 extra scoops.
+  static const _maxExtra = 4;
+  final List<String> _flavours = [];
+  bool get _isIce => item.category.toLowerCase() == 'ice cream';
+  int get _included {
+    final n = item.name.toLowerCase();
+    return n.contains('triple') ? 3 : (n.contains('double') ? 2 : 1);
+  }
+
+  int get _need => _isIce ? math.max(0, _included - _flavours.length) : 0;
+  List<String> get _extras => _isIce && _flavours.length > _included ? _flavours.sublist(_included) : const [];
+  List<String> get _lineScoops => _isIce ? [for (final f in _extras) 'Extra: $f'] : _scoops;
+
+  bool get _flatScoops => scoopFlavours.every((f) => Rules.scoopPriceOf(f.name) == Rules.scoop);
+
+  double get _unit => app.unitFor(item, _lineScoops, _toppings);
   double get _total => round2(_unit * _qty);
+
+  void _toggleFlavour(String f) {
+    setState(() {
+      if (_flavours.contains(f)) {
+        _flavours.remove(f);
+      } else if (_flavours.length < _included + _maxExtra) {
+        _flavours.add(f);
+      } else {
+        toast(context, 'Up to ${_included + _maxExtra} flavours');
+      }
+    });
+  }
+
+  String get _iceHint {
+    if (_need > 0) {
+      return 'Tap $_need more flavour${_need > 1 ? 's' : ''}'
+          '${_flavours.isEmpty ? '' : ' · picked: ${_flavours.join(', ')}'}'
+          ' · want more? Extra scoops +${money(Rules.scoop)} each';
+    }
+    final ex = _extras;
+    return 'Picked: ${_flavours.join(', ')}'
+        '${ex.isEmpty ? ' · tap more to add extra scoops +${money(Rules.scoop)} each' : ' · ${ex.length} extra scoop${ex.length > 1 ? 's' : ''} +${money(ex.fold(0.0, (a, f) => a + Rules.scoopPriceOf(f)))}'}';
+  }
 
   void _toggleScoop(String s) {
     setState(() {
@@ -41,7 +82,17 @@ class _ProductScreenState extends State<ProductScreen> {
   }
 
   void _add() {
-    app.add(item, scoops: _scoops, toppings: _toppings, qty: _qty);
+    if (_need > 0) {
+      toast(context, 'Pick $_need more flavour${_need > 1 ? 's' : ''}');
+      return;
+    }
+    app.add(
+      item,
+      scoops: _lineScoops,
+      toppings: _toppings,
+      qty: _qty,
+      note: _isIce ? 'Flavours: ${_flavours.take(_included).join(', ')}' : null,
+    );
     final nav = Navigator.of(context);
     final messenger = ScaffoldMessenger.of(context);
     nav.pop();
@@ -91,8 +142,9 @@ class _ProductScreenState extends State<ProductScreen> {
                               alignment: Alignment.center,
                               child: PlatePreview(
                                 item: item,
-                                scoops: List.of(_scoops),
+                                scoops: List.of(_isIce ? _flavours : _scoops),
                                 toppings: List.of(_toppings),
+                                houseScoops: !_isIce || _flavours.isEmpty,
                                 size: width * 0.62,
                               ),
                             ),
@@ -167,7 +219,7 @@ class _ProductScreenState extends State<ProductScreen> {
                                 ),
                               const Spacer(),
                               Text(
-                                money(app.unitFor(item, 0, 0)),
+                                money(app.unitFor(item, const [], const [])),
                                 style: fred(24),
                               ),
                             ],
@@ -176,9 +228,12 @@ class _ProductScreenState extends State<ProductScreen> {
                           Text(item.name, style: fred(28, height: 1.1)),
                           const SizedBox(height: 4),
                           Text(item.desc, style: dm(15.5, color: C.grey)),
-                          if (item.takesScoops) ...[
+                          if (_isIce) ...[
                             const SizedBox(height: 22),
-                            _SectionTitle('Add a scoop', '+\$2.50 · up to 2'),
+                            _SectionTitle(
+                              _included == 1 ? 'Pick your flavour' : 'Pick $_included flavours',
+                              'included',
+                            ),
                             const SizedBox(height: 10),
                             Wrap(
                               spacing: 8,
@@ -186,7 +241,26 @@ class _ProductScreenState extends State<ProductScreen> {
                               children: [
                                 for (final f in scoopFlavours)
                                   PillChip(
-                                    f.name,
+                                    _flatScoops ? f.name : '${f.name} +${money(Rules.scoopPriceOf(f.name))}',
+                                    dot: f.dot,
+                                    selected: _flavours.contains(f.name),
+                                    onTap: () => _toggleFlavour(f.name),
+                                  ),
+                              ],
+                            ),
+                            const SizedBox(height: 10),
+                            Text(_iceHint, style: dm(13, color: _need > 0 ? C.deep : C.grey, height: 1.35)),
+                          ] else if (item.takesScoops) ...[
+                            const SizedBox(height: 22),
+                            _SectionTitle('Add a scoop', _flatScoops ? '+${money(Rules.scoop)} · up to 2' : 'up to 2'),
+                            const SizedBox(height: 10),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 10,
+                              children: [
+                                for (final f in scoopFlavours)
+                                  PillChip(
+                                    _flatScoops ? f.name : '${f.name} +${money(Rules.scoopPriceOf(f.name))}',
                                     dot: f.dot,
                                     selected: _scoops.contains(f.name),
                                     onTap: () => _toggleScoop(f.name),
@@ -195,7 +269,10 @@ class _ProductScreenState extends State<ProductScreen> {
                             ),
                           ],
                           const SizedBox(height: 22),
-                          _SectionTitle('Extra toppings', '+\$1.25 each'),
+                          _SectionTitle(
+                            'Extra toppings',
+                            toppingOptions.every((t) => Rules.toppingPriceOf(t) == Rules.topping) ? '+${money(Rules.topping)} each' : '',
+                          ),
                           const SizedBox(height: 10),
                           CardBox(
                             padding: EdgeInsets.zero,
@@ -239,7 +316,7 @@ class _ProductScreenState extends State<ProductScreen> {
                                             ),
                                           ),
                                           Text(
-                                            '+\$1.25',
+                                            '+${money(Rules.toppingPriceOf(toppingOptions[i]))}',
                                             style: dm(14, color: C.grey),
                                           ),
                                         ],
@@ -297,7 +374,7 @@ class _ProductScreenState extends State<ProductScreen> {
                 const SizedBox(width: 12),
                 Expanded(
                   child: Btn(
-                    'Add · +${_total.floor()} pts',
+                    _need > 0 ? 'Pick $_need more flavour${_need > 1 ? 's' : ''}' : 'Add · +${_total.floor()} pts',
                     trailing: money(_total),
                     fontSize: 16,
                     onTap: _add,

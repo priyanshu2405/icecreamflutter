@@ -90,16 +90,105 @@ class Repo {
               imageUrl: p['image_url'] as String?,
               shakeFlag: bySlug[p['category']]!['is_shake'] as bool,
               scoopFlag: bySlug[p['category']]!['takes_scoops'] as bool,
+              featured: p['is_featured'] as bool? ?? false,
             ),
       ];
     }
 
     final fl = (d['flavours'] as List).cast<Map<String, dynamic>>();
     if (fl.isNotEmpty) {
-      scoopFlavours = [for (final f in fl) Flavour(f['name'] as String, _hex(f['dot_color'] as String?, C.pink))];
+      scoopFlavours = [
+        for (final f in fl)
+          Flavour(
+            f['name'] as String,
+            _hex(f['dot_color'] as String?, C.pink),
+            (f['group'] ?? 'Flavours') as String,
+            ((f['groups'] as List?) ?? const []).cast<String>(),
+          ),
+      ];
+      flavourGroups = ((d['flavour_groups'] as List?) ?? const []).cast<String>();
     }
     final tp = (d['toppings'] as List).cast<String>();
     if (tp.isNotEmpty) toppingOptions = List<String>.of(tp);
+
+    final st = (d['stores'] as List?)?.cast<Map<String, dynamic>>() ?? const [];
+    if (st.isNotEmpty) {
+      stores = [
+        for (final s in st)
+          StoreInfo(
+            id: (s['id'] as num?)?.toInt(),
+            name: (s['name'] ?? 'Lick It') as String,
+            address: (s['address'] ?? '') as String,
+            city: (s['city'] ?? '') as String,
+            hours: StoreInfo.clean(s['hours'] as String?),
+            phone: StoreInfo.clean(s['phone'] as String?),
+            lat: (s['latitude'] as num?)?.toDouble(),
+            lng: (s['longitude'] as num?)?.toDouble(),
+            offersDelivery: s['offers_delivery'] as bool? ?? true,
+          ),
+      ];
+    }
+    final settings = d['settings'] as Map<String, dynamic>;
+    Biz.phone = StoreInfo.clean(settings['business_phone'] as String?);
+    Biz.instagram = StoreInfo.clean(settings['instagram_handle'] as String?).replaceFirst('@', '');
+    if (Biz.instagram.isEmpty) Biz.instagram = 'lickit'; // same fallback as the website
+
+    // Pickup / delivery time slots.
+    if (d.containsKey('schedule')) {
+      final sc = d['schedule'] as Map<String, dynamic>?;
+      scheduleDays = [
+        for (final day in ((sc?['days'] as List?) ?? const []).cast<Map<String, dynamic>>())
+          ScheduleDay(day['label'] as String, [
+            for (final s in (day['slots'] as List).cast<Map<String, dynamic>>())
+              ScheduleSlot(s['v'] as String, s['label'] as String),
+          ]),
+      ];
+    }
+
+    // Per-item add-on prices (blank in the admin = default price).
+    final pr = d['prices'] is Map<String, dynamic> ? d['prices'] as Map<String, dynamic> : null;
+    // PHP sends an empty map as [] — treat anything that isn't a map as "no prices".
+    Map<String, double> nums(dynamic m) => {
+      if (m is Map)
+        for (final e in m.entries)
+          if (e.value is num) e.key as String: (e.value as num).toDouble(),
+    };
+    if (pr != null) {
+      Rules.scoopPrices = nums(pr['scoops']);
+      Rules.toppingPrices = nums(pr['toppings']);
+      Rules.drizzlePrices = nums(pr['drizzles']);
+    }
+
+    // Build your own: bases and drizzles from Admin > Build your own.
+    final byo = d['byo'];
+    if (byo is Map<String, dynamic>) {
+      final bases = (byo['bases'] as List?)?.cast<Map<String, dynamic>>() ?? const [];
+      if (bases.isNotEmpty) {
+        byoBases = [
+          for (final b in bases)
+            ByoBase(
+              b['name'] as String,
+              _hex(b['color'] as String?, const Color(0xFFC9852F)),
+              (b['slug'] ?? 'build-your-own') as String,
+              (b['price'] as num).toDouble(),
+            ),
+        ];
+      }
+      final dz = (byo['drizzles'] as List?)?.cast<Map<String, dynamic>>() ?? const [];
+      if (dz.isNotEmpty) {
+        byoDrizzles = [for (final x in dz) Flavour(x['name'] as String, _hex(x['color'] as String?, C.deep))];
+        Rules.drizzlePrices = {
+          ...Rules.drizzlePrices,
+          for (final x in dz) x['name'] as String: ((x['price'] ?? 0) as num).toDouble(),
+        };
+      }
+    } else {
+      // Older server: the base prices come from the website's pricing settings.
+      byoBases = [
+        for (final b in byoBases)
+          ByoBase(b.name, b.color, b.slug, b.slug == 'build-your-own' ? Rules.byoBase : Rules.byoBase + Rules.byoUpcharge),
+      ];
+    }
 
     const tiles = [Color(0xFFF1E6D6), Color(0xFFFCE1EC), Color(0xFFFFF0C2), Color(0xFFE2F0D9)];
     final rw = (d['rewards'] as List).cast<Map<String, dynamic>>();
@@ -148,6 +237,32 @@ class Repo {
     }
   }
 
+  /// Catering, cakes & parties request (same form as the website's Locations page).
+  static Future<String> sendCatering({
+    required String name,
+    required String phone,
+    String? eventType,
+    DateTime? date,
+    int? guests,
+    String? interestedIn,
+    String? message,
+  }) async {
+    final msg = [
+      if (interestedIn != null) 'Interested in: $interestedIn',
+      if (message != null && message.trim().isNotEmpty) message.trim(),
+    ].join('\n');
+    final j = await Api.post('/catering-enquiries', {
+      'name': name,
+      'phone': phone,
+      if (eventType != null) 'event_type': eventType,
+      if (date != null)
+        'event_date': '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}',
+      if (guests != null) 'guests': guests,
+      if (msg.isNotEmpty) 'message': msg,
+    });
+    return (j['message'] ?? 'Thanks! We will be in touch shortly.') as String;
+  }
+
   static Future<void> requestCode(String identifier) async {
     await Api.post('/auth/otp/request', {'identifier': identifier});
   }
@@ -179,7 +294,94 @@ class Repo {
   }
 
   static Future<void> _loadAccountData() async {
-    await Future.wait([loadOrders(), loadFavourites()]);
+    await Future.wait([loadOrders(), loadFavourites(), loadHistory()]);
+  }
+
+  /// Points and wallet history (same data as the website's Rewards page).
+  static Future<void> loadHistory() async {
+    try {
+      final r = (await Api.get('/rewards'))['data'] as Map<String, dynamic>;
+      app.pointsHistory = [
+        for (final a in ((r['activity'] as List?) ?? const []).cast<Map<String, dynamic>>())
+          HistoryLine(DateTime.tryParse((a['date'] ?? '') as String)?.toLocal(), a['text'] as String, (a['points'] as num).toDouble()),
+      ];
+      final w = (await Api.get('/wallet'))['data'] as Map<String, dynamic>;
+      app.walletHistory = [
+        for (final t in ((w['transactions'] as List?) ?? const []).cast<Map<String, dynamic>>())
+          HistoryLine(
+            DateTime.tryParse((t['created_at'] ?? '') as String)?.toLocal(),
+            (t['note'] as String?)?.isNotEmpty == true
+                ? t['note'] as String
+                : '${(t['reason'] as String? ?? '').replaceAll('_', ' ')}'.trim(),
+            (t['amount'] as num).toDouble(),
+          ),
+      ];
+      app.touch();
+    } on ApiException {
+      // history is a nice-to-have; keep what we had
+    }
+  }
+
+  static List<AiPick> _picksFrom(dynamic list) => [
+    for (final p in ((list as List?) ?? const []).cast<Map<String, dynamic>>())
+      if (menu.any((m) => m.id == (p['slug'] ?? p['product'])))
+        AiPick((p['slug'] ?? p['product']) as String, (p['reason'] ?? '') as String),
+  ];
+
+  /// AI menu assistant: "what are you in the mood for?" (null when it's off or busy).
+  static Future<({String message, List<AiPick> picks})?> aiMenu(String prompt) async {
+    try {
+      final d = (await Api.post('/ai/menu', {'prompt': prompt}))['data'] as Map<String, dynamic>;
+      final picks = _picksFrom(d['picks']);
+      return picks.isEmpty ? null : (message: (d['message'] ?? '') as String, picks: picks);
+    } on ApiException {
+      return null;
+    }
+  }
+
+  /// Keyword-based picks from real menu items (works without AI; needs sign-in).
+  static Future<List<AiPick>> flavourFinder(String text) async {
+    try {
+      final d = (await Api.post('/flavour-finder', {'text': text}))['data'] as Map<String, dynamic>;
+      return _picksFrom(d['picks']);
+    } on ApiException {
+      return const [];
+    }
+  }
+
+  /// "Tell us what you're craving": the AI builds a waffle. Throws ApiException with a friendly message.
+  static Future<({String message, String? base, List<String> scoops, String? drizzle, List<String> toppings})> aiBuild(
+    String prompt,
+  ) async {
+    final d = (await Api.post('/ai/build', {'prompt': prompt}))['data'] as Map<String, dynamic>;
+    final b = (d['build'] as Map?)?.cast<String, dynamic>() ?? const {};
+    return (
+      message: (d['message'] ?? '') as String,
+      base: b['base'] as String?,
+      scoops: ((b['scoops'] as List?) ?? const []).cast<String>(),
+      drizzle: b['drizzle'] as String?,
+      toppings: ((b['toppings'] as List?) ?? const []).cast<String>(),
+    );
+  }
+
+  /// Menu items that go with the waffle being built. live = chosen by the AI (else crowd favourites).
+  static Future<({bool live, List<AiPick> picks})> aiPicks({
+    String? base,
+    List<String> scoops = const [],
+    String? drizzle,
+    List<String> toppings = const [],
+  }) async {
+    try {
+      final d = (await Api.post('/ai/picks', {
+        'base': base,
+        'scoops': scoops,
+        'drizzle': drizzle,
+        'toppings': toppings,
+      }))['data'] as Map<String, dynamic>;
+      return (live: d['source'] != 'default', picks: _picksFrom(d['picks']));
+    } on ApiException {
+      return (live: false, picks: const <AiPick>[]);
+    }
   }
 
   static Future<void> loadFavourites() async {
@@ -271,13 +473,24 @@ class Repo {
     required int ptsUsed,
     required double walletUsed,
     DateTime? scheduledFor,
+    String? scheduledSlot,
+    bool payAtStore = false,
   }) async {
     final total = app.total(ptsUsed);
-    final method = walletUsed <= 0 ? 'card' : (walletUsed + 0.005 >= total ? 'wallet' : 'split');
+    final method = payAtStore
+        ? 'pay_at_store'
+        : (walletUsed <= 0 ? 'card' : (walletUsed + 0.005 >= total ? 'wallet' : 'split'));
     final j = await Api.post('/orders', {
       'items': [
         for (final l in app.cart)
-          {'product': l.item.id, 'quantity': l.qty, 'scoops': l.scoops, 'toppings': l.toppings},
+          {
+            'product': l.item.id,
+            'quantity': l.qty,
+            'scoops': l.scoops,
+            'toppings': l.toppings,
+            if (l.note != null) 'note': l.note,
+            if (l.drizzle != null) 'drizzle': l.drizzle,
+          },
       ],
       'mode': _modeApi(app.mode),
       'points_used': ptsUsed,
@@ -285,11 +498,18 @@ class Repo {
       'payment_method': method,
       if (method == 'split') 'wallet_amount': walletUsed,
       if (app.mode == Mode.delivery) 'delivery_address': app.address,
-      if (scheduledFor != null) 'scheduled_for': scheduledFor.toUtc().toIso8601String(),
+      if (app.store.id != null) 'store_id': app.store.id,
+      if (app.orderNotes.trim().isNotEmpty) 'notes': app.orderNotes.trim(),
+      if (scheduledSlot != null)
+        'scheduled_for': scheduledSlot
+      else if (scheduledFor != null)
+        'scheduled_for': scheduledFor.toUtc().toIso8601String(),
     });
     final order = _active(j['data'] as Map<String, dynamic>);
     applyUser(j['user'] as Map<String, dynamic>);
     app.cart.clear();
+    app.orderNotes = '';
+    loadHistory();
     app.dealApplied = false;
     app.active = order;
     app.touch();
@@ -350,6 +570,7 @@ class Repo {
   static Future<String> redeemReward(Reward r) async {
     final j = await Api.post('/rewards/${r.id}/redeem');
     applyUser(j['user'] as Map<String, dynamic>);
+    loadHistory();
     return (j['data'] as Map<String, dynamic>)['code'] as String;
   }
 
@@ -358,6 +579,7 @@ class Repo {
     if (pack.isEmpty) throw ApiException('That top-up amount is not available.');
     final j = await Api.post('/wallet/top-up', {'pack_id': pack.first['id']});
     applyUser(j['user'] as Map<String, dynamic>);
+    loadHistory();
   }
 
   static Future<void> sharePhoto() async {

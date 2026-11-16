@@ -261,6 +261,21 @@ class RewardsTab extends StatelessWidget {
                       _rewardRow(context, r),
                       const SizedBox(height: 10),
                     ],
+                    // Points history, same as the website's "Recent activity".
+                    if (app.pointsHistory.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      Text('Recent activity', style: fred(20)),
+                      const SizedBox(height: 10),
+                      CardBox(
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                        child: Column(
+                          children: [
+                            for (final h in app.pointsHistory.take(8))
+                              historyRow(h, (v) => '${v > 0 ? '+' : ''}${v.round()} pts'),
+                          ],
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -485,9 +500,16 @@ class _WalletScreenState extends State<WalletScreen> {
                       ),
                     ),
                     const SizedBox(height: 12),
+                    if (!Rules.onlinePayments) ...[
+                      Text(
+                        'Online top-ups are paused right now. You can top up your wallet at the counter.',
+                        style: dm(13, color: C.grey, height: 1.35),
+                      ),
+                      const SizedBox(height: 8),
+                    ],
                     Btn(
                       'Add \$$_amount',
-                      onTap: () async {
+                      onTap: !Rules.onlinePayments ? null : () async {
                         final b = _bonus[_amount] ?? 0;
                         try {
                           await Repo.topUp(_amount);
@@ -671,36 +693,18 @@ class _WalletScreenState extends State<WalletScreen> {
   }
 
   void _history(BuildContext context) {
-    final rows = [
-      ('Nov 2 · Order #LI-1988', '−\$24.04'),
-      ('Oct 30 · Top up', '+\$25.00'),
-      ('Oct 26 · Order #LI-1951', '−\$17.80'),
-      ('Oct 20 · Gift from Aman', '+\$15.00'),
-    ];
+    final rows = app.walletHistory;
     showSheet(
       context,
       title: 'Wallet history',
-      child: Column(
-        children: [
-          for (final r in rows)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              child: Row(
-                children: [
-                  Expanded(child: Text(r.$1, style: dm(15))),
-                  Text(
-                    r.$2,
-                    style: dm(
-                      15,
-                      weight: FontWeight.w700,
-                      color: r.$2.startsWith('+') ? C.green : C.ink,
-                    ),
-                  ),
-                ],
-              ),
+      child: rows.isEmpty
+          ? Text('No wallet activity yet.', style: dm(15, color: C.grey))
+          : Column(
+              children: [
+                for (final h in rows.take(20))
+                  historyRow(h, (v) => '${v >= 0 ? '+' : '−'}${money(v.abs())}'),
+              ],
             ),
-        ],
-      ),
     );
   }
 
@@ -779,4 +783,28 @@ class _WalletScreenState extends State<WalletScreen> {
       ),
     );
   }
+}
+
+/// One history line: date · what happened, and the amount (green when added).
+Widget historyRow(HistoryLine h, String Function(double) fmt) {
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  final d = h.date;
+  return Padding(
+    padding: const EdgeInsets.symmetric(vertical: 8),
+    child: Row(
+      children: [
+        Expanded(
+          child: Text(
+            d == null ? h.text : '${months[d.month - 1]} ${d.day} · ${h.text}',
+            style: dm(14.5),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Text(
+          fmt(h.amount),
+          style: dm(14.5, weight: FontWeight.w700, color: h.amount > 0 ? C.green : C.ink),
+        ),
+      ],
+    ),
+  );
 }

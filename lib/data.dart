@@ -20,6 +20,9 @@ class MenuItem {
   final bool? shakeFlag;
   final bool? scoopFlag;
 
+  /// "Featured" in the website admin: shown as Fan favourites on Home.
+  final bool featured;
+
   const MenuItem({
     required this.id,
     required this.name,
@@ -32,6 +35,7 @@ class MenuItem {
     this.imageUrl,
     this.shakeFlag,
     this.scoopFlag,
+    this.featured = false,
   });
 
   bool get isShake => shakeFlag ?? category == 'Shakes';
@@ -231,14 +235,175 @@ List<MenuItem> menu = <MenuItem>[
   ),
 ];
 
-MenuItem itemById(String id) =>
-    menu.firstWhere((m) => m.id == id, orElse: () => menu.first);
+MenuItem itemById(String id) => menu.firstWhere(
+  (m) => m.id == id,
+  orElse: () => byoItems.firstWhere((m) => m.id == id, orElse: () => menu.first),
+);
+
+// ---------------------------------------------------------------------------
+// Build your own waffle (same builder as luckit.vads.ca/build-your-own)
+// ---------------------------------------------------------------------------
+
+/// A waffle base from Admin > Build your own. Each one is linked to the hidden
+/// product that carries its price, so the server charges the same amount.
+class ByoBase {
+  final String name;
+  final Color color;
+  final String slug;
+  final double price;
+  const ByoBase(this.name, this.color, this.slug, this.price);
+}
+
+const byoMaxScoops = 3;
+
+/// Bases in admin order (replaced by the server's list on launch).
+List<ByoBase> byoBases = const [
+  ByoBase('Classic Belgian', Color(0xFFC9852F), 'build-your-own', 11.95),
+  ByoBase('Red Velvet', Color(0xFFB3263E), 'build-your-own-red-velvet', 12.95),
+  ByoBase('Chocolate', Color(0xFF6B3B26), 'build-your-own-chocolate', 12.95),
+];
+
+ByoBase? byoBaseNamed(String? name) {
+  for (final b in byoBases) {
+    if (b.name == name) return b;
+  }
+  return null;
+}
+
+/// The hidden "build your own" products, one per base.
+List<MenuItem> get byoItems => [
+  for (final b in byoBases)
+    MenuItem(
+      id: b.slug,
+      name: b.slug == 'build-your-own' ? 'Build your own waffle' : 'Build your own waffle (${b.name} base)',
+      desc: 'Custom waffle from the builder',
+      category: 'Build your own',
+      price: b.price,
+      tile: const Color(0xFFFDE6EF),
+      icon: Icons.grid_view_rounded,
+    ),
+];
+
+MenuItem byoItemFor(String base) {
+  final b = byoBaseNamed(base) ?? byoBases.first;
+  return byoItems.firstWhere((m) => m.id == b.slug, orElse: () => byoItems.first);
+}
+
+/// Drizzles offered by the builder (name + colour, from Admin > Build your own).
+List<Flavour> byoDrizzles = const <Flavour>[
+  Flavour('Nutella', Color(0xFF5A2E1E)),
+  Flavour('Lotus Biscoff', Color(0xFFB5732F)),
+  Flavour('Belgian chocolate', Color(0xFF3E2117)),
+  Flavour('White chocolate', Color(0xFFF3E9DC)),
+  Flavour('Caramel', Color(0xFFD8902F)),
+  Flavour('Pistachio cream', Color(0xFF9CCC65)),
+];
+
+// ---------------------------------------------------------------------------
+// Stores and business details (from the website admin)
+// ---------------------------------------------------------------------------
+
+class StoreInfo {
+  final int? id;
+  final String name;
+  final String address;
+  final String city;
+  final String hours;
+  final String phone;
+  final double? lat;
+  final double? lng;
+  final bool offersDelivery;
+
+  const StoreInfo({
+    this.id,
+    required this.name,
+    required this.address,
+    required this.city,
+    this.hours = '',
+    this.phone = '',
+    this.lat,
+    this.lng,
+    this.offersDelivery = true,
+  });
+
+  /// Admin placeholders like "[Your opening hours]" aren't shown to customers.
+  static String clean(String? v) {
+    final t = (v ?? '').trim();
+    return t.startsWith('[') && t.endsWith(']') ? '' : t;
+  }
+}
+
+List<StoreInfo> stores = const [
+  StoreInfo(
+    name: 'Lick It · City Pkwy',
+    address: 'Unit #5, 10302 City Pkwy, Surrey, BC V3T 4Y8',
+    city: 'Surrey',
+    lat: 49.1913,
+    lng: -122.849,
+  ),
+];
+
+Uri directionsTo(StoreInfo s) => Uri.parse(
+  'https://www.google.com/maps/dir/?api=1&destination='
+  '${Uri.encodeComponent(s.lat != null && s.lng != null ? '${s.lat},${s.lng}' : s.address)}',
+);
+
+Uri telLink(String phone) => Uri(scheme: 'tel', path: phone.replaceAll(RegExp(r'[^0-9+]'), ''));
+
+// ---------------------------------------------------------------------------
+// "Schedule for later" slots (Admin > Settings > Scheduling)
+// ---------------------------------------------------------------------------
+
+class ScheduleSlot {
+  final String value; // exact time the server expects back, e.g. 2026-11-17T12:00:00-07:00
+  final String label; // "12:00 pm"
+  const ScheduleSlot(this.value, this.label);
+}
+
+class ScheduleDay {
+  final String label; // "Today", "Tomorrow", "Wed, Nov 18"
+  final List<ScheduleSlot> slots;
+  const ScheduleDay(this.label, this.slots);
+}
+
+/// null = older server (free time picker); empty = scheduling switched off.
+List<ScheduleDay>? scheduleDays;
+
+/// A menu item suggested by the server (AI or crowd favourite) with its reason.
+class AiPick {
+  final String slug;
+  final String reason;
+  const AiPick(this.slug, this.reason);
+}
+
+/// One line of points or wallet history.
+class HistoryLine {
+  final DateTime? date;
+  final String text;
+  final double amount; // points, or dollars for the wallet
+  const HistoryLine(this.date, this.text, this.amount);
+}
+
+/// Business phone and Instagram handle from the admin settings.
+class Biz {
+  static String phone = '';
+  static String instagram = '';
+}
+
+/// Menu items suggested under the builder ("Goes great with your waffle").
+const byoPairings = ['Strawberry Blush', 'Vanilla Velvet Cloud', 'Oreo Dream', 'Dubai Cup'];
 
 class Flavour {
   final String name;
   final Color dot;
-  const Flavour(this.name, this.dot);
+  final String group; // first group: "The Classics", "Fruit Favourites"… (from the admin)
+  final List<String> groups; // a flavour can sit in several groups
+  const Flavour(this.name, this.dot, [this.group = 'Flavours', this.groups = const []]);
+  List<String> get allGroups => groups.isEmpty ? [group] : groups;
 }
+
+/// Flavour groups in admin order, hidden ones left out (empty = older server).
+List<String> flavourGroups = [];
 
 List<Flavour> scoopFlavours = <Flavour>[
   Flavour('Vanilla Bean', Color(0xFFF5E6B3)),
@@ -271,6 +436,22 @@ class Rules {
   static int photoPoints = 25;
   static int ratingPoints = 15;
   static bool orderingEnabled = true;
+  /// Per-item prices from the admin. Missing = the default scoop / topping price.
+  static Map<String, double> scoopPrices = {};
+  static Map<String, double> toppingPrices = {};
+  static Map<String, double> drizzlePrices = {};
+  static double scoopPriceOf(String name) =>
+      scoopPrices[name.replaceFirst(RegExp(r'^Extra:\s*', caseSensitive: false), '').trim()] ?? scoop;
+  static double toppingPriceOf(String name) => toppingPrices[name.trim()] ?? topping;
+  static double drizzlePriceOf(String? name) => name == null ? 0 : (drizzlePrices[name.trim()] ?? 0);
+
+  // card / Apple Pay / split / wallet top-up. Off unless the server says they're on
+  // (matches the live website, where online payments are switched off).
+  static bool onlinePayments = false;
+  static bool aiEnabled = false; // AI suggestions (OpenAI key set on the server)
+  static String siteUrl = 'https://luckit.vads.ca/';
+  static double byoBase = 11.95; // build-your-own: Classic Belgian price
+  static double byoUpcharge = 1.00; // build-your-own: Red Velvet / Chocolate extra
 
   static void apply(Map<String, dynamic> s) {
     double d(String k, double f) => (s[k] as num?)?.toDouble() ?? f;
@@ -284,6 +465,12 @@ class Rules {
     photoPoints = (s['photo_share_points'] as num?)?.toInt() ?? photoPoints;
     ratingPoints = (s['rating_points'] as num?)?.toInt() ?? ratingPoints;
     orderingEnabled = s['ordering_enabled'] as bool? ?? orderingEnabled;
+    byoBase = d('byo_base_price', byoBase);
+    onlinePayments = s['online_payments'] as bool? ?? false;
+    aiEnabled = s['ai_enabled'] as bool? ?? aiEnabled;
+    final url = s['site_url'] as String?;
+    if (url != null && url.startsWith('http')) siteUrl = url.endsWith('/') ? url : '$url/';
+    byoUpcharge = d('byo_base_upcharge', byoUpcharge);
   }
 }
 
@@ -297,17 +484,26 @@ class CartLine {
   final List<String> toppings;
   int qty;
 
-  CartLine(this.item, this.scoops, this.toppings, this.qty);
+  /// Kitchen note sent with the line (build-your-own: base, drizzle and the
+  /// customer's own note).
+  final String? note;
+
+  /// Build your own: the drizzle (priced per drizzle in the admin).
+  final String? drizzle;
+
+  CartLine(this.item, this.scoops, this.toppings, this.qty, {this.note, this.drizzle});
 
   double get baseUnit =>
       item.price +
       scoops.length * Rules.scoop +
       toppings.length * Rules.topping;
 
-  bool sameAs(MenuItem i, List<String> s, List<String> t) =>
+  bool sameAs(MenuItem i, List<String> s, List<String> t, [String? n, String? d]) =>
       i.id == item.id &&
       s.join('|') == scoops.join('|') &&
-      t.join('|') == toppings.join('|');
+      t.join('|') == toppings.join('|') &&
+      (n ?? '') == (note ?? '') &&
+      (d ?? '') == (drizzle ?? '');
 }
 
 enum Mode { pickup, delivery, dineIn }
@@ -422,6 +618,22 @@ class AppState extends ChangeNotifier {
   bool sharedPhoto = false;
   bool storeAlerts = false;
 
+  /// Store the customer orders from (null = first store) and their kitchen note.
+  int? storeId;
+  String orderNotes = '';
+
+  /// Points history ("Recent activity") and wallet history from the server.
+  List<HistoryLine> pointsHistory = [];
+  List<HistoryLine> walletHistory = [];
+  StoreInfo get store => stores.firstWhere((s) => s.id == storeId, orElse: () => stores.first);
+
+  /// "City Pkwy" from "Lick It · City Pkwy".
+  String get storeShort {
+    final n = store.name;
+    final i = n.lastIndexOf('·');
+    return (i >= 0 ? n.substring(i + 1) : n).trim();
+  }
+
   final List<PastOrder> past = [];
 
   /// Clears everything that belongs to the signed-in customer.
@@ -487,14 +699,23 @@ class AppState extends ChangeNotifier {
   void touch() => notifyListeners();
 
   // --- cart ---
-  double unitFor(MenuItem item, int scoops, int toppings) {
-    var p = item.price + scoops * Rules.scoop + toppings * Rules.topping;
+  /// Same as the server: product price + each scoop's and topping's own price
+  /// (+ the drizzle for build your own). Scoops only count where the category takes them.
+  double unitFor(MenuItem item, List<String> scoops, List<String> toppings, {String? drizzle}) {
+    var p = item.price + Rules.drizzlePriceOf(drizzle);
+    if (item.takesScoops) {
+      for (final s in scoops) {
+        p += Rules.scoopPriceOf(s);
+      }
+    }
+    for (final t in toppings) {
+      p += Rules.toppingPriceOf(t);
+    }
     if (item.isShake && dealApplied) p = p * (1 - Rules.dealPercent / 100);
     return round2(p);
   }
 
-  double unitPrice(CartLine l) =>
-      unitFor(l.item, l.scoops.length, l.toppings.length);
+  double unitPrice(CartLine l) => unitFor(l.item, l.scoops, l.toppings, drizzle: l.drizzle);
   double lineTotal(CartLine l) => round2(unitPrice(l) * l.qty);
   int get cartCount => cart.fold(0, (s, l) => s + l.qty);
   double get subtotal => round2(cart.fold(0.0, (s, l) => s + lineTotal(l)));
@@ -507,15 +728,17 @@ class AppState extends ChangeNotifier {
     List<String> scoops = const [],
     List<String> toppings = const [],
     int qty = 1,
+    String? note,
+    String? drizzle,
   }) {
     for (final l in cart) {
-      if (l.sameAs(item, scoops, toppings)) {
+      if (l.sameAs(item, scoops, toppings, note, drizzle)) {
         l.qty += qty;
         notifyListeners();
         return;
       }
     }
-    cart.add(CartLine(item, List.of(scoops), List.of(toppings), qty));
+    cart.add(CartLine(item, List.of(scoops), List.of(toppings), qty, note: note, drizzle: drizzle));
     notifyListeners();
   }
 
@@ -528,7 +751,13 @@ class AppState extends ChangeNotifier {
   bool inCart(String id) => cart.any((l) => l.item.id == id);
 
   String lineSubtitle(CartLine l) {
-    final parts = <String>[...l.scoops.map((s) => '$s scoop'), ...l.toppings];
+    final parts = <String>[
+      ...l.scoops.map((s) => s.startsWith('Extra: ') ? 'Extra ${s.substring(7)} scoop' : '$s scoop'),
+      ...l.toppings,
+    ];
+    if (l.note != null && l.note!.isNotEmpty) {
+      return [l.note!, if (parts.isNotEmpty) '+ ${parts.join(' · ')}'].join('\n');
+    }
     if (parts.isNotEmpty) return '+ ${parts.join(' · ')}';
     if (l.item.isShake) {
       return dealApplied

@@ -107,7 +107,7 @@ class ProfileTab extends StatelessWidget {
                   _row(
                     'S',
                     'Favourite store',
-                    'City Pkwy',
+                    app.storeShort,
                     () => push(context, const StoresScreen()),
                   ),
                   _row(
@@ -145,6 +145,28 @@ class ProfileTab extends StatelessWidget {
                     app.emailNews = v;
                     app.savePrefs();
                   }),
+                ],
+              ),
+            ),
+            const SizedBox(height: 22),
+            Text(
+              'HELP & LEGAL',
+              style: dm(
+                12,
+                color: C.grey,
+                weight: FontWeight.w700,
+                spacing: 1.5,
+              ),
+            ),
+            const SizedBox(height: 8),
+            CardBox(
+              padding: EdgeInsets.zero,
+              child: Column(
+                children: [
+                  // Same pages as the website footer (text set in Admin > Settings > Website pages).
+                  _row('A', 'Allergen information', null, () => openLink(context, Uri.parse('${Rules.siteUrl}allergens'))),
+                  _row('P', 'Privacy policy', null, () => openLink(context, Uri.parse('${Rules.siteUrl}privacy'))),
+                  _row('T', 'Terms of service', null, () => openLink(context, Uri.parse('${Rules.siteUrl}terms'))),
                 ],
               ),
             ),

@@ -622,6 +622,10 @@ class AppState extends ChangeNotifier {
   int? storeId;
   String orderNotes = '';
 
+  /// Where the delivery address was pinned on the map (this session).
+  double? addressLat;
+  double? addressLng;
+
   /// Points history ("Recent activity") and wallet history from the server.
   List<HistoryLine> pointsHistory = [];
   List<HistoryLine> walletHistory = [];

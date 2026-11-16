@@ -105,6 +105,8 @@ class StoresScreen extends StatelessWidget {
                     ),
                   ),
                 ),
+                const SizedBox(width: 10),
+                const CartButton(),
               ],
             ),
           ),

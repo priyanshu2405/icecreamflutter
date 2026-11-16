@@ -53,6 +53,8 @@ class ProfileTab extends StatelessWidget {
                     ],
                   ),
                 ),
+                const SizedBox(width: 8),
+                const CartButton(),
               ],
             ),
             const SizedBox(height: 16),

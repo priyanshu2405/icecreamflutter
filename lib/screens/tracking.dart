@@ -161,7 +161,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
                       ),
                     ),
                   ),
-                  const SizedBox(width: 46),
+                  const CartButton(),
                 ],
               ),
             ),

@@ -43,6 +43,14 @@ if [ -x /usr/libexec/PlistBuddy ]; then
   /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity:NSAllowsLocalNetworking bool true" ios/Runner/Info.plist 2>/dev/null || true
 fi
 
+echo "==> Location permission (\"Use my current location\" on the delivery address map)"
+if ! grep -q 'android.permission.ACCESS_FINE_LOCATION' "$MANIFEST"; then
+  perl -0pi -e 's#<application#<uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>\n    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>\n    <application#' "$MANIFEST"
+fi
+if [ -x /usr/libexec/PlistBuddy ]; then
+  /usr/libexec/PlistBuddy -c "Add :NSLocationWhenInUseUsageDescription string 'Lick It uses your location to fill in your delivery address and find the nearest store.'" ios/Runner/Info.plist 2>/dev/null || true
+fi
+
 echo "==> Getting packages"
 flutter pub get
 

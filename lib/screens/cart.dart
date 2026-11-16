@@ -55,7 +55,7 @@ class _CartScreenState extends State<CartScreen> {
             bottom: false,
             child: Column(
               children: [
-                const ScreenHeader('Your cart'),
+                const ScreenHeader('Your cart', cart: false),
                 Expanded(
                   child: app.cart.isEmpty
                       ? _empty(context)
@@ -546,7 +546,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         bottom: false,
         child: Column(
           children: [
-            const ScreenHeader('Checkout'),
+            const ScreenHeader('Checkout', cart: false),
             Expanded(
               child: ListView(
                 padding: const EdgeInsets.fromLTRB(16, 4, 16, 20),
@@ -943,7 +943,7 @@ class _SplitPayScreenState extends State<SplitPayScreen> {
         bottom: false,
         child: Column(
           children: [
-            const ScreenHeader('Split payment'),
+            const ScreenHeader('Split payment', cart: false),
             Expanded(
               child: ListView(
                 padding: const EdgeInsets.fromLTRB(16, 4, 16, 20),

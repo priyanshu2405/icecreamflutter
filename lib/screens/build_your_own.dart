@@ -303,7 +303,7 @@ class _BuildYourOwnScreenState extends State<BuildYourOwnScreen> {
                                 style: script(22, color: Colors.white),
                               ),
                             ),
-                            const _CartButton(),
+                            const CartButton(),
                           ],
                         ),
                         const SizedBox(height: 6),
@@ -869,44 +869,6 @@ class _PairingCard extends StatelessWidget {
             ),
           ],
         ),
-      ),
-    );
-  }
-}
-
-class _CartButton extends StatelessWidget {
-  const _CartButton();
-
-  @override
-  Widget build(BuildContext context) {
-    return ListenableBuilder(
-      listenable: app,
-      builder: (context, _) => Stack(
-        clipBehavior: Clip.none,
-        children: [
-          CircleBtn(
-            icon: Icons.shopping_bag_outlined,
-            onTap: () => push(context, const CartScreen()),
-          ),
-          if (app.cartCount > 0)
-            Positioned(
-              right: -2,
-              top: -2,
-              child: Container(
-                constraints: const BoxConstraints(minWidth: 20),
-                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-                decoration: BoxDecoration(
-                  color: C.ink,
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Text(
-                  '${app.cartCount}',
-                  textAlign: TextAlign.center,
-                  style: dm(11.5, color: Colors.white, weight: FontWeight.w700),
-                ),
-              ),
-            ),
-        ],
       ),
     );
   }

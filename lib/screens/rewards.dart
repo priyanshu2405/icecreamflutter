@@ -76,6 +76,8 @@ class RewardsTab extends StatelessWidget {
                                 ),
                               ),
                             ),
+                            const SizedBox(width: 12),
+                            const CartButton(size: 42),
                           ],
                         ),
                         const SizedBox(height: 18),

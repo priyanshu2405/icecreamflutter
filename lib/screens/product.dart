@@ -158,7 +158,9 @@ class _ProductScreenState extends State<ProductScreen> {
                         Positioned(
                           right: 16,
                           top: top + 10,
-                          child: ListenableBuilder(
+                          child: Row(
+                            children: [
+                              ListenableBuilder(
                             listenable: app,
                             builder: (context, _) {
                               final fav = app.favourites.contains(item.id);
@@ -178,6 +180,10 @@ class _ProductScreenState extends State<ProductScreen> {
                                 },
                               );
                             },
+                              ),
+                              const SizedBox(width: 10),
+                              const CartButton(),
+                            ],
                           ),
                         ),
                       ],

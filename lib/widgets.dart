@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import 'data.dart';
 import 'theme.dart';
 
 // ---------------------------------------------------------------------------
@@ -229,6 +230,63 @@ class CircleBtn extends StatelessWidget {
   }
 }
 
+/// Opens the cart. Set once in main.dart (keeps this file free of screen imports).
+void Function(BuildContext context)? openCart;
+
+/// Bag button with the number of items in the cart, shown at the top of every page.
+class CartButton extends StatelessWidget {
+  final double size;
+  final Color color;
+  final Color iconColor;
+  const CartButton({super.key, this.size = 46, this.color = Colors.white, this.iconColor = C.ink});
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: app,
+      builder: (context, _) {
+        final n = app.cartCount;
+        return Semantics(
+          button: true,
+          label: n == 0 ? 'Cart, empty' : 'Cart, $n item${n == 1 ? '' : 's'}',
+          excludeSemantics: true,
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              CircleBtn(
+                icon: Icons.shopping_bag_outlined,
+                color: color,
+                iconColor: iconColor,
+                size: size,
+                onTap: () => openCart?.call(context),
+              ),
+              if (n > 0)
+                Positioned(
+                  right: -3,
+                  top: -3,
+                  child: Container(
+                    constraints: const BoxConstraints(minWidth: 20),
+                    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: C.deep,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: Colors.white, width: 1.5),
+                    ),
+                    child: Text(
+                      n > 99 ? '99+' : '$n',
+                      textAlign: TextAlign.center,
+                      style: dm(11, color: Colors.white, weight: FontWeight.w700),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
 /// Back button + big title, used on most inner screens.
 class ScreenHeader extends StatelessWidget {
   final String title;
@@ -236,12 +294,16 @@ class ScreenHeader extends StatelessWidget {
   final Widget? trailing;
   final IconData icon;
 
+  /// Show the cart button on the right (off on the cart / checkout screens themselves).
+  final bool cart;
+
   const ScreenHeader(
     this.title, {
     super.key,
     this.subtitle,
     this.trailing,
     this.icon = Icons.chevron_left_rounded,
+    this.cart = true,
   });
 
   @override
@@ -271,6 +333,10 @@ class ScreenHeader extends StatelessWidget {
             ),
           ),
           if (trailing != null) trailing!,
+          if (cart) ...[
+            const SizedBox(width: 8),
+            const CartButton(),
+          ],
         ],
       ),
     );

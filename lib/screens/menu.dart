@@ -92,6 +92,8 @@ class _MenuTabState extends State<MenuTab> {
                             ),
                           ),
                         ),
+                        const SizedBox(width: 8),
+                        const CartButton(size: 42),
                       ],
                     ),
                   ),

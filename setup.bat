@@ -27,6 +27,10 @@ echo ==^> Allowing network access (INTERNET permission; plain http only in debug
 powershell -NoProfile -Command "$f='android\app\src\main\AndroidManifest.xml'; $t=Get-Content $f -Raw; if ($t -notmatch 'android.permission.INTERNET') { $t=$t -replace '<application', ('<uses-permission android:name=' + [char]34 + 'android.permission.INTERNET' + [char]34 + '/>' + [char]10 + '    <application'); Set-Content $f $t }"
 powershell -NoProfile -Command "$q=[char]34; $x='<manifest xmlns:android='+$q+'http://schemas.android.com/apk/res/android'+$q+'>'+[char]10+'    <uses-permission android:name='+$q+'android.permission.INTERNET'+$q+'/>'+[char]10+'    <application android:usesCleartextTraffic='+$q+'true'+$q+'/>'+[char]10+'</manifest>'; Set-Content 'android\app\src\debug\AndroidManifest.xml' $x"
 
+echo ==^> Location permission (Use my current location on the delivery address map)
+powershell -NoProfile -Command "$f='android\app\src\main\AndroidManifest.xml'; $t=Get-Content $f -Raw; if ($t -notmatch 'ACCESS_FINE_LOCATION') { $q=[char]34; $t=$t -replace '<application', ('<uses-permission android:name='+$q+'android.permission.ACCESS_COARSE_LOCATION'+$q+'/>'+[char]10+'    <uses-permission android:name='+$q+'android.permission.ACCESS_FINE_LOCATION'+$q+'/>'+[char]10+'    <application'); Set-Content $f $t }"
+rem iOS builds need a Mac: setup.sh adds the iOS location message there.
+
 echo ==^> Getting packages
 call flutter pub get
 

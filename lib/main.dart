@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'screens/cart.dart';
 import 'screens/shell.dart';
 import 'screens/splash.dart';
 import 'services/api_client.dart';
 import 'services/repo.dart';
 import 'theme.dart';
+import 'widgets.dart';
 
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
@@ -34,6 +36,7 @@ Future<void> main() async {
     );
   };
 
+  openCart = (context) => push(context, const CartScreen());
   runApp(LickItApp(signedIn: signedIn));
 }
 

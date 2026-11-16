@@ -1,10 +1,9 @@
 import 'package:flutter/material.dart';
 
 import '../data.dart';
-import '../services/api_client.dart';
-import '../services/repo.dart';
 import '../theme.dart';
 import '../widgets.dart';
+import 'address_picker.dart';
 import 'build_your_own.dart';
 import 'catering.dart';
 import 'flavour_finder.dart';
@@ -110,6 +109,8 @@ class HomeTab extends StatelessWidget {
                                 ),
                               ),
                             ),
+                            const SizedBox(width: 8),
+                            const CartButton(size: 42),
                           ],
                         ),
                         const SizedBox(height: 18),
@@ -485,57 +486,11 @@ class _PickCard extends StatelessWidget {
   }
 }
 
+/// Delivery address: opens the map picker (search, drag the pin, or use my location).
 void showAddressSheet(BuildContext context) {
-  final ctrl = TextEditingController(text: app.address);
-  showSheet(
-    context,
-    title: 'Deliver to',
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Text(
-          'Where should we bring your order?',
-          style: dm(14.5, color: C.grey),
-        ),
-        const SizedBox(height: 12),
-        TextField(
-          controller: ctrl,
-          textCapitalization: TextCapitalization.words,
-          decoration: InputDecoration(
-            hintText: 'Street address, city · apartment / buzzer',
-            filled: true,
-            fillColor: Colors.white,
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(16),
-              borderSide: const BorderSide(color: C.line),
-            ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(16),
-              borderSide: const BorderSide(color: C.line),
-            ),
-          ),
-        ),
-        const SizedBox(height: 14),
-        Btn(
-          'Save address',
-          onTap: () async {
-            final v = ctrl.text.trim();
-            if (v.isEmpty) {
-              toast(context, 'Please type your address first');
-              return;
-            }
-            try {
-              await Repo.saveAddress(v);
-              if (context.mounted) Navigator.pop(context);
-            } on ApiException catch (e) {
-              if (context.mounted) toast(context, e.message);
-            }
-          },
-        ),
-      ],
-    ),
-  );
+  pickDeliveryAddress(context);
 }
+
 
 class ActiveOrderStrip extends StatelessWidget {
   final ActiveOrder order;

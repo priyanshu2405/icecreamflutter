@@ -1,0 +1,146 @@
+# Lick It — Flutter app (connected to the Laravel backend)
+
+## The one thing to change for production: the base URL
+
+Everything the app sends goes through **`lib/config/api_config.dart`**. When the backend is live, either:
+
+* edit `_defaultBaseUrl` in that file to `https://yourdomain.com/api/v1`, **or**
+* leave the file alone and build with
+  `flutter build apk --release --dart-define=API_BASE_URL=https://yourdomain.com/api/v1`
+  (same flag for `flutter build appbundle` / `flutter build ipa`).
+
+For local testing the default is `http://10.0.2.2:8000/api/v1` (Android emulator → your computer). iOS simulator: `http://127.0.0.1:8000/api/v1`. Real phone: `http://<your-computer-LAN-IP>:8000/api/v1` (start the server with `php artisan serve --host=0.0.0.0`).
+
+## Run it
+
+```bash
+./setup.sh        # (or setup.bat on Windows) creates android/ios folders, icons + launch screens, INTERNET permission
+flutter run
+```
+Sign in with a mobile number; the code is in the backend's `storage/logs/laravel.log` (or `1234` while `OTP_DEBUG_CODE=1234` on a non-production server).
+
+## What is now live (server-driven)
+Menu, categories, flavours, toppings, prices, tax / delivery / points rules · sign-in with one-time code and saved login · profile & notification toggles · delivery address · favourites · placing orders (server re-prices the cart) · order tracking (polls the kitchen status every 5 s) · collect / rate order · order history · rewards redeem (gives a code to show at the counter) · wallet top-up · photo-booth share bonus · sign out & delete account.
+
+New files: `lib/config/api_config.dart`, `lib/services/api_client.dart` (HTTP + token), `lib/services/repo.dart` (all backend calls). Existing screens were changed only where they used mock data.
+
+## Still prototype content (not connected yet)
+* Apple / Google / Email sign-in buttons (show a "use your mobile number" message)
+* Stores screen (static single store), geo-offer lock-screen demo, Flavour Finder chat (scripted), "Priya's Pink Stack" saved-creation banner, gift cards, auto-reload, split payment between friends
+* Card payment needs a real gateway on the server (see backend README) — until then `card` orders only work on a demo server
+* Live driver location (the map animates from the order status), push notifications, menu photos in the tiles
+
+> Not compiled in the build environment (no Flutter SDK): run `flutter pub get && flutter analyze` first and fix anything it reports.
+
+---
+
+# Lick It — clickable app prototype (Flutter · Android + iOS)
+
+A working prototype of the Lick It Ice Cream & Waffle app, built from the 22 design screens. Everything is tappable: you can browse, build a waffle, check out, track the order, earn points and use the photo booth. All data is mock data that lives in memory, so restarting the app resets it.
+
+No third-party packages are used, so there is nothing that can fail to download or conflict.
+
+## 1. Set up (once)
+
+You need Flutter **3.27 or newer**. The code has been checked against 3.38 and 3.47. To see your version, run `flutter --version`. For iPhone builds you also need a Mac with Xcode.
+
+Unzip the folder, open a terminal in it and run:
+
+| Your computer | Command |
+| --- | --- |
+| macOS / Linux | `./setup.sh` |
+| Windows | `setup.bat` |
+
+The script creates the `android/` and `ios/` folders, installs the Waffle Buddy app icons (Android adaptive, round and themed icons; full iOS icon set) and pink launch screens, and names the app "Lick It". It never touches the code in `lib/`. Store artwork to upload by hand is in `app_icon/store/` (see `app_icon/README.md`).
+
+## 2. Run it
+
+Plug in a phone with developer mode / USB debugging on, or start an emulator or simulator, then run:
+
+```
+flutter run --release
+```
+
+`--release` makes animations smooth, which matters for a client demo. Leave it off while making changes, so you get hot-reload.
+
+## 3. Share it with the client
+
+**Android:** run `flutter build apk --release`. Send the client `build/app/outputs/flutter-apk/app-release.apk` (WhatsApp, Drive, email). They tap it to install, allowing "install unknown apps" if asked.
+
+**iPhone:** Apple doesn't allow sideloading. Pick one of these:
+
+- Open `ios/Runner.xcworkspace` in Xcode, choose your team under *Signing & Capabilities* and run it on a connected iPhone.
+- Upload it to TestFlight (needs a paid Apple Developer account) and invite the client.
+
+## 4. Suggested demo walkthrough (about 5 minutes)
+
+1. **Splash → Get started → onboarding.** On page 2, "Allow location & alerts" shows a permission prompt. Then go to **Sign in**, tap *Send me a code* and enter any 4 digits.
+2. **Home.**
+   - Switch **Pickup ↔ Delivery** and watch the address line change.
+   - Tap the dark **"You're nearby!"** banner. This turns on 10% off shakes and jumps to the Shakes menu, where prices are struck through.
+3. **Menu → Waffles → Lick It Signature.**
+   - Pick Strawberry and add Oreo crumble. The total becomes $20.70.
+   - Tap **Add**, then *View cart*.
+4. **Cart.**
+   - Try Pickup / Delivery / Dine-in. The $4.99 delivery fee appears with Delivery.
+   - Tap the Vanilla Velvet upsell and "Schedule for later".
+5. **Checkout.**
+   - Change the points tiles and watch the GST and total recalculate.
+   - Open **Split payment** (wallet + card, or *With friends*).
+   - **Place order.**
+6. **Tracking.**
+   - The order moves from *received* to *making it* to *ready* over about 18 seconds.
+   - Flip the top toggle to **Delivery** to show the live map with the moving driver.
+   - Tap "I'm here, bring it out" to earn the points.
+7. **Camera button** (centre of the tab bar) **→ Photo Booth.**
+   - Swap frames, turn on the 3s timer and tap the shutter.
+   - On the share screen, the first share earns +25 pts.
+8. **Rewards.** Redeem a reward and watch the points drop. Tap *Wallet* to top up and see the bonus points.
+9. **Home → "AI" chip → Flavour Finder.** Tap *Fruity* or type "something fruity, no nuts".
+10. **Profile → Prototype demos → Nearby offer notification.** This shows the lock-screen geofence alert.
+
+## 5. What's real and what's mocked
+
+Fully interactive:
+- navigation, cart maths, points
+- GST (5%) and the delivery fee
+- wallet top-ups and redeeming rewards
+- ratings and favourites
+- all toggles
+
+Mocked or simulated:
+- sign-in and payments
+- the store map (an illustration, not Google Maps)
+- the driver's position
+- push notifications (shown as a demo screen)
+- the AI recommendations (scripted)
+
+The **photo booth uses a sample photo of the store sign** in place of the live camera. Food photos are coloured placeholder tiles, as in the design file. Real photos, the camera, maps, payments and a backend are next-phase work.
+
+## Project layout
+
+```
+lib/
+  main.dart            app entry, portrait lock, theme
+  theme.dart           brand colours & fonts (Fredoka, DM Sans, Pacifico)
+  data.dart            mock menu, cart/points/wallet maths, app state
+  widgets.dart         buttons, chips, cards, map & barcode painters
+  screens/
+    splash.dart        A01 Splash, A02 Welcome, A03 Sign in
+    shell.dart         tab bar with the raised camera button
+    home.dart          A04 / A04b Home (pickup & delivery)
+    menu.dart          A05 Menu
+    product.dart       A06 Product
+    cart.dart          A07 / A07b Cart, A08 Checkout, A09 Split pay
+    tracking.dart      A10 / A10b Pickup & delivery tracking
+    rewards.dart       A11 Rewards, A12 Wallet
+    stores.dart        A13 Stores, A14 Geo promo notification
+    photo_booth.dart   A15 Photo booth, A16 Photo share
+    flavour_finder.dart A17 Flavour Finder
+    orders.dart        A18 Your orders
+    profile.dart       A19 Profile
+assets/                logo, store photo, bundled fonts
+app_icon/              pre-sized Android & iOS launcher icons
+```
+
+To change prices, menu items or the demo user, edit `lib/data.dart`. To change brand colours, edit `lib/theme.dart`.

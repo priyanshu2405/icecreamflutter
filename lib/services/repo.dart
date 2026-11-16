@@ -55,9 +55,42 @@ class Repo {
       final j = await Api.get('/bootstrap');
       _applyCatalog(j['data'] as Map<String, dynamic>);
       catalogLoaded = true;
+      _loadedAt = DateTime.now();
     } catch (_) {
       // keep the offline fallback menu
     }
+  }
+
+  static DateTime? _loadedAt;
+  static Future<void>? _refreshing;
+
+  /// Re-reads the menu, categories, flavours, prices and settings so anything
+  /// changed in the website admin shows up without reinstalling or restarting.
+  /// Called when the app comes back to the foreground, on tab changes and on
+  /// pull-to-refresh. Skipped if the last load was under 30 seconds ago
+  /// (unless [force]); a refresh already running is reused.
+  static Future<void> refresh({bool force = false}) {
+    final last = _loadedAt;
+    if (!force && last != null && DateTime.now().difference(last) < const Duration(seconds: 30)) {
+      return Future.value();
+    }
+    return _refreshing ??= () async {
+      try {
+        await bootstrap();
+        // Points / wallet changed by staff (Admin > Customers) show up too.
+        if (Api.hasToken) {
+          try {
+            final j = await Api.get('/me');
+            applyUser(j['data'] as Map<String, dynamic>);
+          } catch (_) {}
+        }
+        // Delivery switched off in the admin while the app was open.
+        if (app.mode == Mode.delivery && !Rules.deliveryEnabled) app.mode = Mode.pickup;
+        app.touch();
+      } finally {
+        _refreshing = null;
+      }
+    }();
   }
 
   static void _applyCatalog(Map<String, dynamic> d) {
@@ -66,6 +99,11 @@ class Repo {
     final cats = (d['categories'] as List).cast<Map<String, dynamic>>();
     if (cats.isNotEmpty) {
       categories = [for (final c in cats) c['name'] as String];
+      categorySlug = {for (final c in cats) c['name'] as String: (c['slug'] ?? '') as String};
+      categoryImage = {
+        for (final c in cats)
+          if (c['image_url'] is String && (c['image_url'] as String).isNotEmpty) c['name'] as String: c['image_url'] as String,
+      };
       categoryBlurb = {for (final c in cats) c['name'] as String: (c['blurb'] ?? '') as String};
       categoryTile = {for (final c in cats) c['name'] as String: _hex(c['tile_color'] as String?)};
       categoryIcon = {for (final c in cats) c['name'] as String: _icon(c['icon'] as String?)};
@@ -83,6 +121,7 @@ class Repo {
               name: p['name'] as String,
               desc: (p['description'] ?? '') as String,
               category: bySlug[p['category']]!['name'] as String,
+              categorySlug: p['category'] as String,
               price: (p['price'] as num).toDouble(),
               tile: _hex(p['tile_color'] as String?),
               icon: _icon(bySlug[p['category']]!['icon'] as String?),
@@ -582,10 +621,30 @@ class Repo {
     loadHistory();
   }
 
-  static Future<void> sharePhoto() async {
+  /// Privacy / Terms / Allergen text, edited in Admin > Settings > Website pages.
+  /// Returns (title, blocks) where each block is (isHeading, text).
+  static Future<({String title, List<({bool heading, String text})> blocks})> legalPage(String slug) async {
+    final j = await Api.get('/pages/$slug');
+    final d = j['data'] as Map<String, dynamic>;
+    return (
+      title: (d['title'] ?? '') as String,
+      blocks: [
+        for (final b in (d['blocks'] as List? ?? const []).cast<Map<String, dynamic>>())
+          (heading: b['heading'] == true, text: (b['text'] ?? '') as String),
+      ],
+    );
+  }
+
+  /// Records a completed Photo Booth share. Returns the points the server
+  /// awarded (only the customer's first-ever share earns points; 0 otherwise).
+  static Future<int> sharePhoto() async {
+    if (!Api.hasToken) return 0;
     try {
       final j = await Api.post('/photo-booth/share');
       applyUser(j['user'] as Map<String, dynamic>);
-    } catch (_) {}
+      return (j['earned'] as num?)?.toInt() ?? 0;
+    } catch (_) {
+      return 0;
+    }
   }
 }

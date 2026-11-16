@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../data.dart';
 import '../services/api_client.dart';
 import '../services/repo.dart';
 import '../theme.dart';
@@ -147,7 +148,6 @@ class _SplashScreenState extends State<SplashScreen>
                             style: dm(
                               15,
                               weight: FontWeight.w700,
-                              decoration: TextDecoration.underline,
                             ),
                           ),
                         ),
@@ -269,12 +269,12 @@ class _WelcomeScreenState extends State<WelcomeScreen>
                   _OnboardPage(
                     art: _OrderArt(pulse: _pulse),
                     title: 'Skip the line, not the toppings',
-                    body: 'Order ahead for pickup, delivery or dine-in. Build it exactly how you like it and we\'ll have it ready.',
+                    body: 'Order ahead for pickup or delivery. Build it exactly how you like it and we\'ll have it ready.',
                   ),
                   _OnboardPage(
                     art: _RadarArt(pulse: _pulse),
-                    title: 'Sweet deals that find you',
-                    body: 'Turn on location to find your nearest Lick It and get offers when you\'re close by. Turn on notifications to know when your order is ready.',
+                    title: 'Your nearest Lick It',
+                    body: 'Turn on location to find your nearest store and fill in your delivery address. Turn on notifications to know when your order is ready.',
                   ),
                   _OnboardPage(
                     art: _BoothArt(pulse: _pulse),
@@ -444,12 +444,12 @@ class _RadarArt extends StatelessWidget {
           const Positioned(
             left: 0,
             top: 36,
-            child: _Callout('10% off shakes', '200 m away'),
+            child: _Callout('Nearest store', 'on the map'),
           ),
           const Positioned(
             right: 0,
             bottom: 66,
-            child: _Callout('Free topping', 'Today only', dark: true),
+            child: _Callout('Order ready', "we'll let you know", dark: true),
           ),
         ],
       ),
@@ -550,10 +550,10 @@ class _BoothArt extends StatelessWidget {
             top: 40,
             child: _Callout('#LickItLove', 'share to earn'),
           ),
-          const Positioned(
+          Positioned(
             right: 0,
             bottom: 50,
-            child: _Callout('+25 pts', 'per photo', dark: true),
+            child: _Callout('+${Rules.photoPoints} pts', 'first share', dark: true),
           ),
         ],
       ),
@@ -927,7 +927,6 @@ class _SignInScreenState extends State<SignInScreen> {
                           15,
                           color: C.grey,
                           weight: FontWeight.w700,
-                          decoration: TextDecoration.underline,
                         ),
                       ),
                     ),

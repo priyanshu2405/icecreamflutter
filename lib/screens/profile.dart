@@ -7,6 +7,7 @@ import '../theme.dart';
 import '../widgets.dart';
 import 'flavour_finder.dart';
 import 'home.dart' show showAddressSheet;
+import 'legal_page.dart';
 import 'orders.dart';
 import 'rewards.dart';
 import 'splash.dart';
@@ -97,7 +98,7 @@ class ProfileTab extends StatelessWidget {
                   _row(
                     '\$',
                     'Payment methods',
-                    'Visa •• 4821',
+                    'Wallet ${money(app.wallet)}',
                     () => _payments(context),
                   ),
                   _row(
@@ -111,18 +112,6 @@ class ProfileTab extends StatelessWidget {
                     'Favourite store',
                     app.storeShort,
                     () => push(context, const StoresScreen()),
-                  ),
-                  _row(
-                    'G',
-                    'Gift cards',
-                    null,
-                    () => push(context, const WalletScreen()),
-                  ),
-                  _row(
-                    '?',
-                    'Help & allergen info',
-                    null,
-                    () => _allergens(context),
                     last: true,
                   ),
                 ],
@@ -133,11 +122,6 @@ class ProfileTab extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
               child: Column(
                 children: [
-                  _toggle('Nearby offers (GPS)', app.gpsOffers, (v) {
-                    app.gpsOffers = v;
-                    app.savePrefs();
-                  }),
-                  const Divider(height: 1, color: C.line),
                   _toggle('Order & reward alerts', app.orderAlerts, (v) {
                     app.orderAlerts = v;
                     app.savePrefs();
@@ -165,16 +149,27 @@ class ProfileTab extends StatelessWidget {
               padding: EdgeInsets.zero,
               child: Column(
                 children: [
-                  // Same pages as the website footer (text set in Admin > Settings > Website pages).
-                  _row('A', 'Allergen information', null, () => openLink(context, Uri.parse('${Rules.siteUrl}allergens'))),
-                  _row('P', 'Privacy policy', null, () => openLink(context, Uri.parse('${Rules.siteUrl}privacy'))),
-                  _row('T', 'Terms of service', null, () => openLink(context, Uri.parse('${Rules.siteUrl}terms'))),
+                  // Same pages as the website footer, shown inside the app
+                  // (text set in Admin > Settings > Website pages).
+                  _row('A', 'Allergen information', null, () => push(context, const LegalPageScreen(slug: 'allergens', title: 'Allergen Information'))),
+                  _row('P', 'Privacy policy', null, () => push(context, const LegalPageScreen(slug: 'privacy', title: 'Privacy Policy'))),
+                  _row(
+                    'T',
+                    'Terms of service',
+                    null,
+                    () => push(context, const LegalPageScreen(slug: 'terms', title: 'Terms of Service')),
+                    last: Biz.phone.isEmpty && Biz.instagram.isEmpty,
+                  ),
+                  if (Biz.phone.isNotEmpty)
+                    _row('☎', 'Call us', Biz.phone, () => openLink(context, telLink(Biz.phone)), last: Biz.instagram.isEmpty),
+                  if (Biz.instagram.isNotEmpty)
+                    _row('@', 'Message us on Instagram', '@${Biz.instagram}', () => openLink(context, Uri.parse('https://instagram.com/${Biz.instagram}')), last: true),
                 ],
               ),
             ),
             const SizedBox(height: 22),
             Text(
-              'PROTOTYPE DEMOS',
+              'ACCOUNT',
               style: dm(
                 12,
                 color: C.grey,
@@ -187,12 +182,6 @@ class ProfileTab extends StatelessWidget {
               padding: EdgeInsets.zero,
               child: Column(
                 children: [
-                  _row(
-                    '🔔',
-                    'Nearby offer notification',
-                    'Lock screen',
-                    () => push(context, const GeoPromoScreen()),
-                  ),
                   _row('↩', 'Sign out', null, () async {
                     await Repo.signOut();
                     if (!context.mounted) return;
@@ -318,6 +307,7 @@ class ProfileTab extends StatelessWidget {
         ),
       );
 
+  // Same choices as the website checkout: wallet, card online, or pay at the counter.
   void _payments(BuildContext context) {
     showSheet(
       context,
@@ -326,19 +316,12 @@ class ProfileTab extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           CardBox(
-            border: C.deep,
-            borderWidth: 2,
             child: Row(
               children: [
-                const MiniBadge('VISA', Color(0xFF1A1F71)),
+                const MiniBadge('LICK', C.pink),
                 const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    'Visa •• 4821 · default',
-                    style: dm(15, weight: FontWeight.w700),
-                  ),
-                ),
-                Text('08/29', style: dm(13, color: C.grey)),
+                Expanded(child: Text('Lick It Wallet', style: dm(15, weight: FontWeight.w700))),
+                Text(money(app.wallet), style: dm(14, color: C.grey)),
               ],
             ),
           ),
@@ -346,52 +329,40 @@ class ProfileTab extends StatelessWidget {
           CardBox(
             child: Row(
               children: [
-                const MiniBadge('LICK', C.pink),
+                const Icon(Icons.credit_card_rounded, color: C.deep),
                 const SizedBox(width: 12),
                 Expanded(
-                  child: Text(
-                    'Lick It Wallet',
-                    style: dm(15, weight: FontWeight.w700),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Credit or debit card', style: dm(15, weight: FontWeight.w700)),
+                      Text(
+                        Rules.onlinePayments ? 'Choose "Pay online by card" at checkout' : 'Coming soon',
+                        style: dm(13, color: C.grey),
+                      ),
+                    ],
                   ),
                 ),
-                Text(money(app.wallet), style: dm(13, color: C.grey)),
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
+          CardBox(
+            child: Row(
+              children: [
+                const Icon(Icons.storefront_outlined, color: C.deep),
+                const SizedBox(width: 12),
+                Expanded(child: Text('Card or cash at the counter', style: dm(15, weight: FontWeight.w700))),
               ],
             ),
           ),
           const SizedBox(height: 14),
           Btn(
-            'Add a card',
-            style: BtnStyle.outline,
+            'Top up wallet',
             icon: Icons.add,
             onTap: () {
               Navigator.pop(context);
-              toast(context, 'Secure card entry opens here in the full app');
-            },
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _allergens(BuildContext context) {
-    showSheet(
-      context,
-      title: 'Help & allergen info',
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'All items are made in a kitchen that handles milk, eggs, wheat, soy, peanuts and tree nuts. '
-            'Pistachio, Rocky Road and Pista Kunafa contain nuts. Ask our team about dairy-free sorbet options.',
-            style: dm(15, color: C.grey, height: 1.45),
-          ),
-          const SizedBox(height: 16),
-          Btn(
-            'Chat with us',
-            icon: Icons.chat_bubble_outline_rounded,
-            onTap: () {
-              Navigator.pop(context);
-              toast(context, 'Support chat opens here');
+              push(context, const WalletScreen());
             },
           ),
         ],

@@ -12,6 +12,9 @@ class MenuItem {
   final String name;
   final String desc;
   final String category;
+
+  /// Category slug from the admin ("ice-cream", "waffles"…); null on the bundled sample menu.
+  final String? categorySlug;
   final double price;
   final Color tile;
   final IconData icon;
@@ -23,11 +26,16 @@ class MenuItem {
   /// "Featured" in the website admin: shown as Fan favourites on Home.
   final bool featured;
 
+  /// Picture to show, like the website: the product's own photo, else its category's illustration.
+  String? get art => imageUrl ?? categoryImage[category];
+  bool get hasPhoto => imageUrl != null;
+
   const MenuItem({
     required this.id,
     required this.name,
     required this.desc,
     required this.category,
+    this.categorySlug,
     required this.price,
     required this.tile,
     required this.icon,
@@ -37,6 +45,16 @@ class MenuItem {
     this.scoopFlag,
     this.featured = false,
   });
+
+  /// Every product in the admin's "Ice Cream" category (Single scoop, Double scoop…):
+  /// the customer picks the flavours it includes, like the website.
+  bool get isIceCream => isIceCategory(category, categorySlug);
+
+  /// "Single/Double/Triple" in the name sets how many flavours are included (same rule as the website).
+  int get includedFlavours {
+    final n = name.toLowerCase();
+    return n.contains('triple') ? 3 : (n.contains('double') ? 2 : 1);
+  }
 
   bool get isShake => shakeFlag ?? category == 'Shakes';
   bool get takesScoops => scoopFlag ?? category != 'Shakes';
@@ -51,6 +69,17 @@ class MenuItem {
 // The lists below start with a bundled fallback menu and are replaced by the
 // server's menu on launch (see services/repo.dart).
 List<String> categories = ['Ice Cream', 'Waffles', 'Bingsu', 'Shakes'];
+
+/// Category name → slug from the admin.
+Map<String, String> categorySlug = {};
+
+/// The website keys its ice-cream picker on the category slug "ice-cream",
+/// so a renamed category still works.
+bool isIceCategory(String name, [String? slug]) =>
+    (slug ?? categorySlug[name]) == 'ice-cream' || name.trim().toLowerCase() == 'ice cream';
+
+/// Category name → picture uploaded in Admin > Categories ("Website illustration").
+Map<String, String> categoryImage = {};
 
 Map<String, String> categoryBlurb = {
   'Ice Cream': 'Small batch. Big scoops.',
@@ -405,6 +434,25 @@ class Flavour {
 /// Flavour groups in admin order, hidden ones left out (empty = older server).
 List<String> flavourGroups = [];
 
+/// Flavours grouped like the website menu: groups in the admin's order, hidden
+/// groups left out, and a flavour shown under each of its groups.
+Map<String, List<Flavour>> groupedFlavours() {
+  final groups = <String, List<Flavour>>{for (final g in flavourGroups) g: []};
+  for (final f in scoopFlavours) {
+    for (final g in f.allGroups) {
+      if (flavourGroups.isEmpty) {
+        groups.putIfAbsent(g, () => []).add(f);
+      } else if (groups.containsKey(g)) {
+        groups[g]!.add(f);
+      }
+    }
+  }
+  groups.removeWhere((_, v) => v.isEmpty);
+  // Nothing matched the group list (e.g. every group hidden): still offer every flavour.
+  if (groups.isEmpty && scoopFlavours.isNotEmpty) groups['Flavours'] = List.of(scoopFlavours);
+  return groups;
+}
+
 List<Flavour> scoopFlavours = <Flavour>[
   Flavour('Vanilla Bean', Color(0xFFF5E6B3)),
   Flavour('Strawberry', C.pink),
@@ -436,6 +484,9 @@ class Rules {
   static int photoPoints = 25;
   static int ratingPoints = 15;
   static bool orderingEnabled = true;
+  static bool deliveryEnabled = true; // Admin > Settings > Offer delivery
+  static double minOrder = 0; // Admin > Settings > Minimum order
+  static String currency = '\$'; // Admin > Settings > Currency symbol
   /// Per-item prices from the admin. Missing = the default scoop / topping price.
   static Map<String, double> scoopPrices = {};
   static Map<String, double> toppingPrices = {};
@@ -445,7 +496,7 @@ class Rules {
   static double toppingPriceOf(String name) => toppingPrices[name.trim()] ?? topping;
   static double drizzlePriceOf(String? name) => name == null ? 0 : (drizzlePrices[name.trim()] ?? 0);
 
-  // card / Apple Pay / split / wallet top-up. Off unless the server says they're on
+  // card / split / wallet top-up. Off unless the server says they're on
   // (matches the live website, where online payments are switched off).
   static bool onlinePayments = false;
   static bool aiEnabled = false; // AI suggestions (OpenAI key set on the server)
@@ -465,6 +516,10 @@ class Rules {
     photoPoints = (s['photo_share_points'] as num?)?.toInt() ?? photoPoints;
     ratingPoints = (s['rating_points'] as num?)?.toInt() ?? ratingPoints;
     orderingEnabled = s['ordering_enabled'] as bool? ?? orderingEnabled;
+    deliveryEnabled = s['delivery_enabled'] as bool? ?? deliveryEnabled;
+    minOrder = d('min_order', minOrder);
+    final cur = (s['currency_symbol'] as String?)?.trim();
+    if (cur != null && cur.isNotEmpty) currency = cur;
     byoBase = d('byo_base_price', byoBase);
     onlinePayments = s['online_payments'] as bool? ?? false;
     aiEnabled = s['ai_enabled'] as bool? ?? aiEnabled;
@@ -684,6 +739,8 @@ class AppState extends ChangeNotifier {
   }
 
   void setMode(Mode m) {
+    // Delivery switched off in the admin: stay on pickup, like the website.
+    if (m == Mode.delivery && !Rules.deliveryEnabled) m = Mode.pickup;
     mode = m;
     notifyListeners();
   }
@@ -833,7 +890,10 @@ final app = AppState();
 
 double round2(double v) => (v * 100).round() / 100;
 
-String money(double v) => '\$${v.toStringAsFixed(2)}';
+String money(double v) => '${Rules.currency}${v.toStringAsFixed(2)}';
+
+/// "100" when 1 point = \$0.01 (Admin > Settings > Value of 1 point).
+int get pointsPerDollar => Rules.pointValue > 0 ? (1 / Rules.pointValue).round() : 100;
 
 String fmtTime(DateTime t) {
   final h = t.hour % 12 == 0 ? 12 : t.hour % 12;

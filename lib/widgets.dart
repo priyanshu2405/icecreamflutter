@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'data.dart';
@@ -367,7 +368,9 @@ class PillChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Opaque so the whole pill (not just the text) takes the tap on iOS and Android.
     return GestureDetector(
+      behavior: HitTestBehavior.opaque,
       onTap: onTap,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 180),
@@ -455,6 +458,12 @@ class FoodTile extends StatelessWidget {
   final double radius;
   final IconData? icon;
 
+  /// Picture from the admin (product photo or category illustration). Falls back to [icon].
+  final String? imageUrl;
+
+  /// true = a photo that fills the tile; false = an illustration drawn inside it.
+  final bool photo;
+
   const FoodTile({
     super.key,
     required this.color,
@@ -462,24 +471,66 @@ class FoodTile extends StatelessWidget {
     this.height,
     this.radius = 16,
     this.icon,
+    this.imageUrl,
+    this.photo = false,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: size,
-      height: height ?? size,
-      decoration: BoxDecoration(
-        color: color,
-        borderRadius: BorderRadius.circular(radius),
-      ),
-      child: icon == null
-          ? null
-          : Icon(
+    final iconWidget = icon == null
+        ? const SizedBox.shrink()
+        : Center(
+            child: Icon(
               icon,
               size: math.min(size, height ?? size) * 0.4,
               color: C.ink.withValues(alpha: 0.12),
             ),
+          );
+    final url = imageUrl;
+    return Container(
+      width: size,
+      height: height ?? size,
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(radius),
+      ),
+      child: url == null
+          ? (icon == null ? null : iconWidget)
+          : photo
+              ? NetArt(url, fit: BoxFit.cover, fallback: iconWidget)
+              : Padding(
+                  padding: EdgeInsets.all(math.min(size, height ?? size) * 0.1),
+                  child: NetArt(url, fit: BoxFit.contain, fallback: iconWidget),
+                ),
+    );
+  }
+}
+
+/// A picture from the website's server: SVG illustrations or photos (PNG, JPG, WebP).
+/// Shows [fallback] while loading and if it can't be loaded.
+class NetArt extends StatelessWidget {
+  final String url;
+  final BoxFit fit;
+  final Widget fallback;
+  const NetArt(this.url, {super.key, this.fit = BoxFit.contain, this.fallback = const SizedBox.shrink()});
+
+  @override
+  Widget build(BuildContext context) {
+    final isSvg = url.toLowerCase().split('?').first.endsWith('.svg');
+    if (isSvg) {
+      return SvgPicture.network(
+        url,
+        fit: fit,
+        placeholderBuilder: (_) => fallback,
+        errorBuilder: (_, __, ___) => fallback,
+      );
+    }
+    return Image.network(
+      url,
+      fit: fit,
+      frameBuilder: (_, child, frame, sync) => sync || frame != null ? child : fallback,
+      errorBuilder: (_, __, ___) => fallback,
     );
   }
 }

@@ -1,5 +1,3 @@
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
 
 import '../data.dart';
@@ -7,6 +5,7 @@ import '../plate_preview.dart';
 import '../theme.dart';
 import '../widgets.dart';
 import 'cart.dart';
+import 'ice_cream_picker.dart';
 
 // ---------------------------------------------------------------------------
 // A06 Product
@@ -29,16 +28,12 @@ class _ProductScreenState extends State<ProductScreen> {
 
   // Ice Cream items work like the website: pick the flavours the item includes
   // ("Single/Double/Triple" in its name), then up to 4 extra scoops.
-  static const _maxExtra = 4;
-  final List<String> _flavours = [];
-  bool get _isIce => item.category.toLowerCase() == 'ice cream';
-  int get _included {
-    final n = item.name.toLowerCase();
-    return n.contains('triple') ? 3 : (n.contains('double') ? 2 : 1);
-  }
+  List<String> _flavours = [];
+  bool get _isIce => item.isIceCream;
+  int get _included => item.includedFlavours;
 
-  int get _need => _isIce ? math.max(0, _included - _flavours.length) : 0;
-  List<String> get _extras => _isIce && _flavours.length > _included ? _flavours.sublist(_included) : const [];
+  int get _need => _isIce ? IcePick.need(_flavours, _included) : 0;
+  List<String> get _extras => _isIce ? IcePick.extras(_flavours, _included) : const [];
   List<String> get _lineScoops => _isIce ? [for (final f in _extras) 'Extra: $f'] : _scoops;
 
   bool get _flatScoops => scoopFlavours.every((f) => Rules.scoopPriceOf(f.name) == Rules.scoop);
@@ -46,28 +41,9 @@ class _ProductScreenState extends State<ProductScreen> {
   double get _unit => app.unitFor(item, _lineScoops, _toppings);
   double get _total => round2(_unit * _qty);
 
-  void _toggleFlavour(String f) {
-    setState(() {
-      if (_flavours.contains(f)) {
-        _flavours.remove(f);
-      } else if (_flavours.length < _included + _maxExtra) {
-        _flavours.add(f);
-      } else {
-        toast(context, 'Up to ${_included + _maxExtra} flavours');
-      }
-    });
-  }
+  void _toggleFlavour(String f) => setState(() => _flavours = IcePick.toggle(context, _flavours, f, _included));
 
-  String get _iceHint {
-    if (_need > 0) {
-      return 'Tap $_need more flavour${_need > 1 ? 's' : ''}'
-          '${_flavours.isEmpty ? '' : ' · picked: ${_flavours.join(', ')}'}'
-          ' · want more? Extra scoops +${money(Rules.scoop)} each';
-    }
-    final ex = _extras;
-    return 'Picked: ${_flavours.join(', ')}'
-        '${ex.isEmpty ? ' · tap more to add extra scoops +${money(Rules.scoop)} each' : ' · ${ex.length} extra scoop${ex.length > 1 ? 's' : ''} +${money(ex.fold(0.0, (a, f) => a + Rules.scoopPriceOf(f)))}'}';
-  }
+  String get _iceHint => IcePick.hint(_flavours, _included);
 
   void _toggleScoop(String s) {
     setState(() {
@@ -241,19 +217,7 @@ class _ProductScreenState extends State<ProductScreen> {
                               'included',
                             ),
                             const SizedBox(height: 10),
-                            Wrap(
-                              spacing: 8,
-                              runSpacing: 10,
-                              children: [
-                                for (final f in scoopFlavours)
-                                  PillChip(
-                                    _flatScoops ? f.name : '${f.name} +${money(Rules.scoopPriceOf(f.name))}',
-                                    dot: f.dot,
-                                    selected: _flavours.contains(f.name),
-                                    onTap: () => _toggleFlavour(f.name),
-                                  ),
-                              ],
-                            ),
+                            FlavourChooser(picked: _flavours, onToggle: _toggleFlavour),
                             const SizedBox(height: 10),
                             Text(_iceHint, style: dm(13, color: _need > 0 ? C.deep : C.grey, height: 1.35)),
                           ] else if (item.takesScoops) ...[

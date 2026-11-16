@@ -6,6 +6,7 @@ import '../theme.dart';
 import '../widgets.dart';
 import 'build_your_own.dart';
 import 'cart.dart';
+import 'ice_cream_picker.dart';
 import 'product.dart';
 
 // ---------------------------------------------------------------------------
@@ -46,7 +47,9 @@ class _MenuTabState extends State<MenuTab> {
                   )
                   .toList();
         // Build-your-own lives under Waffles, like the website (Menu / Waffles / Build your own).
-        final showIce = _q.isEmpty && cat.toLowerCase() == 'ice cream' && scoopFlavours.isNotEmpty;
+        // Ice Cream works like the website menu: one picker (size + flavours) instead of plain rows.
+        final showIce = _q.isEmpty && isIceCategory(cat) && scoopFlavours.isNotEmpty;
+        if (showIce) items.removeWhere((m) => m.isIceCream);
         final showByo = _q.isEmpty
             ? cat.toLowerCase() == 'waffles'
             : 'build your own waffle'.contains(_q) || _q.contains('build');
@@ -168,7 +171,7 @@ class _MenuTabState extends State<MenuTab> {
                         const Spacer(),
                         Text(
                           _q.isEmpty
-                              ? categoryBlurb[cat]!
+                              ? categoryBlurb[cat] ?? ''
                               : '${items.length} found',
                           style: dm(13, color: C.grey),
                         ),
@@ -183,7 +186,11 @@ class _MenuTabState extends State<MenuTab> {
                               style: dm(15, color: C.grey),
                             ),
                           )
-                        : ListView.separated(
+                        : RefreshIndicator(
+                          color: C.deep,
+                          onRefresh: () => Repo.refresh(force: true),
+                          child: ListView.separated(
+                            physics: const AlwaysScrollableScrollPhysics(),
                             padding: EdgeInsets.fromLTRB(
                               16,
                               0,
@@ -195,12 +202,13 @@ class _MenuTabState extends State<MenuTab> {
                                 const SizedBox(height: 12),
                             itemBuilder: (_, i) {
                               if (showByo || showIce) {
-                                if (i == 0) return showByo ? const ByoBanner() : const _TodaysFlavours();
+                                if (i == 0) return showByo ? const ByoBanner() : const IceCreamPicker();
                                 return MenuRow(item: items[i - 1]);
                               }
                               return MenuRow(item: items[i]);
                             },
                           ),
+                        ),
                   ),
                 ],
               ),
@@ -210,120 +218,6 @@ class _MenuTabState extends State<MenuTab> {
           ),
         );
       },
-    );
-  }
-}
-
-/// "In the case today": every active flavour, grouped like the website menu.
-class _TodaysFlavours extends StatefulWidget {
-  const _TodaysFlavours();
-
-  @override
-  State<_TodaysFlavours> createState() => _TodaysFlavoursState();
-}
-
-class _TodaysFlavoursState extends State<_TodaysFlavours> {
-  bool _open = false;
-
-  @override
-  Widget build(BuildContext context) {
-    // Groups in the admin's order (hidden groups left out); a flavour shows under each of its groups.
-    final groups = <String, List<Flavour>>{for (final g in flavourGroups) g: []};
-    for (final f in scoopFlavours) {
-      for (final g in f.allGroups) {
-        if (flavourGroups.isEmpty) {
-          groups.putIfAbsent(g, () => []).add(f);
-        } else if (groups.containsKey(g)) {
-          groups[g]!.add(f);
-        }
-      }
-    }
-    groups.removeWhere((_, v) => v.isEmpty);
-    return CardBox(
-      padding: EdgeInsets.zero,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          InkWell(
-            onTap: () => setState(() => _open = !_open),
-            child: Padding(
-              padding: const EdgeInsets.all(14),
-              child: Row(
-                children: [
-                  Container(
-                    width: 46,
-                    height: 46,
-                    decoration: BoxDecoration(color: C.blush, borderRadius: BorderRadius.circular(14)),
-                    child: const Icon(Icons.icecream_outlined, color: C.deep),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('In the case today', style: fred(17)),
-                        Text(
-                          '${scoopFlavours.length} flavours · selection rotates',
-                          style: dm(13, color: C.grey),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Icon(_open ? Icons.expand_less_rounded : Icons.expand_more_rounded, color: C.grey),
-                ],
-              ),
-            ),
-          ),
-          if (_open)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  for (final g in groups.entries) ...[
-                    const SizedBox(height: 8),
-                    Text(
-                      g.key.toUpperCase(),
-                      style: dm(12, color: C.deep, weight: FontWeight.w700, spacing: 1.2),
-                    ),
-                    const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 6,
-                      runSpacing: 6,
-                      children: [
-                        for (final f in g.value)
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                            decoration: BoxDecoration(
-                              color: C.cream,
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Container(
-                                  width: 10,
-                                  height: 10,
-                                  decoration: BoxDecoration(color: f.dot, shape: BoxShape.circle),
-                                ),
-                                const SizedBox(width: 6),
-                                Text(f.name, style: dm(13)),
-                              ],
-                            ),
-                          ),
-                      ],
-                    ),
-                  ],
-                  const SizedBox(height: 12),
-                  Text(
-                    'Please tell our team about allergies. Flavours and toppings are subject to availability.',
-                    style: dm(12, color: C.grey, height: 1.35),
-                  ),
-                ],
-              ),
-            ),
-        ],
-      ),
     );
   }
 }
@@ -392,7 +286,7 @@ class MenuRow extends StatelessWidget {
       onTap: () => push(context, ProductScreen(item: item)),
       child: Row(
         children: [
-          FoodTile(color: item.tile, size: 78, icon: item.icon),
+          FoodTile(color: item.tile, size: 78, icon: item.icon, imageUrl: item.art, photo: item.hasPhoto),
           const SizedBox(width: 14),
           Expanded(
             child: Column(
@@ -441,6 +335,11 @@ class MenuRow extends StatelessWidget {
             child: InkWell(
               customBorder: const CircleBorder(),
               onTap: () {
+                // Ice cream needs its flavours picked first.
+                if (item.isIceCream) {
+                  push(context, ProductScreen(item: item));
+                  return;
+                }
                 app.add(item);
                 toast(
                   context,

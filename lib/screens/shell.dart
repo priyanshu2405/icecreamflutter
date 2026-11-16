@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../data.dart';
+import '../services/repo.dart';
 import '../theme.dart';
 import '../widgets.dart';
 import 'home.dart';
@@ -10,8 +11,31 @@ import 'profile.dart';
 import 'rewards.dart';
 
 /// Main tabbed app: Home, Menu, (camera), Rewards, Profile.
-class Shell extends StatelessWidget {
+class Shell extends StatefulWidget {
   const Shell({super.key});
+
+  @override
+  State<Shell> createState() => _ShellState();
+}
+
+class _ShellState extends State<Shell> with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  // Back from the background: pick up anything changed in the website admin.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) Repo.refresh();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -54,7 +78,10 @@ class BottomNav extends StatelessWidget {
               borderRadius: BorderRadius.circular(20),
               clipBehavior: Clip.antiAlias,
               child: InkWell(
-                onTap: () => app.setTab(i),
+                onTap: () {
+                  app.setTab(i);
+                  Repo.refresh();
+                },
                 splashColor: C.blush,
                 highlightColor: C.blush.withValues(alpha: 0.5),
                 child: AnimatedContainer(

@@ -837,7 +837,7 @@ class _PairingCard extends StatelessWidget {
         width: 200,
         child: Row(
           children: [
-            FoodTile(color: item.tile, size: 64, icon: item.icon),
+            FoodTile(color: item.tile, size: 64, icon: item.icon, imageUrl: item.art, photo: item.hasPhoto),
             const SizedBox(width: 12),
             Expanded(
               child: Column(

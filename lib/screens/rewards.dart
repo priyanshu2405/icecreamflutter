@@ -72,7 +72,6 @@ class RewardsTab extends StatelessWidget {
                                   15,
                                   color: const Color(0xFFFF7DB4),
                                   weight: FontWeight.w700,
-                                  decoration: TextDecoration.underline,
                                 ),
                               ),
                             ),
@@ -232,27 +231,21 @@ class RewardsTab extends StatelessWidget {
                       children: [
                         _earn(
                           context,
-                          '1/\$',
+                          '1/${Rules.currency}',
                           'Every order',
                           'Earn 1 point for every dollar you spend.',
                         ),
                         _earn(
                           context,
-                          '+25',
+                          '+${Rules.photoPoints}',
                           'Photo booth',
                           'Snap your treat in the Photo Booth and share it.',
                         ),
                         _earn(
                           context,
-                          '+15',
+                          '+${Rules.ratingPoints}',
                           'Leave a review',
                           'Rate a past order from Your orders.',
-                        ),
-                        _earn(
-                          context,
-                          '+100',
-                          'Invite a friend',
-                          'They get a free scoop, you get 100 pts after their first order.',
                         ),
                       ],
                     ),
@@ -409,7 +402,27 @@ class WalletScreen extends StatefulWidget {
 
 class _WalletScreenState extends State<WalletScreen> {
   int _amount = 25;
-  bool _auto = true;
+  bool _busy = false;
+
+  // Like the website: the pack is charged to the customer's card online and
+  // the balance (plus any bonus points) is added straight away.
+  Future<void> _topUp() async {
+    if (!Rules.onlinePayments) {
+      toast(context, 'Wallet top-ups are coming soon.');
+      return;
+    }
+    final b = _bonus[_amount] ?? 0;
+    setState(() => _busy = true);
+    try {
+      await Repo.topUp(_amount);
+      if (!mounted) return;
+      toast(context, b > 0 ? 'Added ${Rules.currency}$_amount + $b bonus pts' : 'Added ${Rules.currency}$_amount to your wallet');
+    } on ApiException catch (e) {
+      if (mounted) toast(context, e.message);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
 
   Map<int, int> get _bonus => app.packBonus;
 
@@ -483,103 +496,29 @@ class _WalletScreenState extends State<WalletScreen> {
                     const SizedBox(height: 10),
                     Row(
                       children: [
-                        for (final a in app.packAmounts) ...[
-                          if (a != 10) const SizedBox(width: 8),
+                        for (final (i, a) in app.packAmounts.indexed) ...[
+                          if (i > 0) const SizedBox(width: 8),
                           Expanded(child: _amountTile(a)),
                         ],
                       ],
                     ),
-                    const SizedBox(height: 10),
-                    CardBox(
-                      onTap: () => setState(() => _auto = !_auto),
-                      padding: const EdgeInsets.all(14),
-                      child: Row(
-                        children: [
-                          PinkCheck(_auto),
-                          const SizedBox(width: 12),
-                          Text('Auto-reload \$25 below \$5', style: dm(15)),
-                        ],
-                      ),
-                    ),
                     const SizedBox(height: 12),
-                    if (!Rules.onlinePayments) ...[
-                      Text(
-                        'Online top-ups are paused right now. You can top up your wallet at the counter.',
-                        style: dm(13, color: C.grey, height: 1.35),
-                      ),
-                      const SizedBox(height: 8),
-                    ],
-                    Btn(
-                      'Add \$$_amount',
-                      onTap: !Rules.onlinePayments ? null : () async {
-                        final b = _bonus[_amount] ?? 0;
-                        try {
-                          await Repo.topUp(_amount);
-                          if (!context.mounted) return;
-                          toast(
-                            context,
-                            b > 0
-                                ? 'Added \$$_amount + $b bonus pts'
-                                : 'Added \$$_amount to your wallet',
-                          );
-                        } on ApiException catch (e) {
-                          if (context.mounted) toast(context, e.message);
-                        }
-                      },
-                    ),
-                    const SizedBox(height: 22),
                     Row(
                       children: [
-                        Expanded(child: Text('Gift cards', style: fred(19))),
-                        GestureDetector(
-                          onTap: () => _redeemCode(context),
+                        const Icon(Icons.credit_card_rounded, size: 18, color: C.grey),
+                        const SizedBox(width: 8),
+                        Expanded(
                           child: Text(
-                            'Redeem a code',
-                            style: dm(
-                              14,
-                              color: C.deep,
-                              weight: FontWeight.w700,
-                            ),
+                            Rules.onlinePayments ? 'Paid online by credit or debit card' : 'Online top-ups are coming soon',
+                            style: dm(13, color: C.grey),
                           ),
                         ),
                       ],
                     ),
                     const SizedBox(height: 10),
-                    SizedBox(
-                      height: 104,
-                      child: ListView(
-                        scrollDirection: Axis.horizontal,
-                        children: [
-                          _giftCard(
-                            'Happy birthday!',
-                            '\$25',
-                            C.pink,
-                            Colors.white,
-                          ),
-                          _giftCard(
-                            'Treat yourself',
-                            '\$10 – \$100',
-                            C.yellow,
-                            C.ink,
-                          ),
-                          _giftCard('Thank you!', '\$15', C.ink, Colors.white),
-                          Dashed(
-                            color: const Color(0xFFBDB2B6),
-                            onTap: () => _sendGift(context),
-                            child: const SizedBox(
-                              width: 64,
-                              height: 104,
-                              child: Icon(Icons.add, color: C.grey),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 14),
                     Btn(
-                      'Send a gift card',
-                      style: BtnStyle.outline,
-                      onTap: () => _sendGift(context),
+                      _busy ? 'Adding…' : 'Add ${Rules.currency}$_amount',
+                      onTap: _busy ? null : _topUp,
                     ),
                   ],
                 ),
@@ -627,7 +566,7 @@ class _WalletScreenState extends State<WalletScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Text('\$$a', style: dm(17, weight: FontWeight.w700)),
+            Text('${Rules.currency}$a', style: dm(17, weight: FontWeight.w700)),
             if (b > 0)
               Text(
                 '+$b pts',
@@ -638,32 +577,6 @@ class _WalletScreenState extends State<WalletScreen> {
       ),
     );
   }
-
-  Widget _giftCard(String title, String amount, Color bg, Color fg) => Padding(
-    padding: const EdgeInsets.only(right: 10),
-    child: GestureDetector(
-      onTap: () => _sendGift(context, design: title),
-      child: Container(
-        width: 150,
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: bg,
-          borderRadius: BorderRadius.circular(16),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(title, style: script(15, color: fg)),
-            const Spacer(),
-            Text(
-              amount,
-              style: dm(14, color: fg, weight: FontWeight.w700),
-            ),
-          ],
-        ),
-      ),
-    ),
-  );
 
   void _payInStore(BuildContext context) {
     showSheet(
@@ -707,82 +620,6 @@ class _WalletScreenState extends State<WalletScreen> {
                   historyRow(h, (v) => '${v >= 0 ? '+' : '−'}${money(v.abs())}'),
               ],
             ),
-    );
-  }
-
-  void _redeemCode(BuildContext context) {
-    final c = TextEditingController();
-    showSheet(
-      context,
-      title: 'Redeem a code',
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          TextField(
-            controller: c,
-            autofocus: true,
-            textCapitalization: TextCapitalization.characters,
-            style: dm(18, weight: FontWeight.w700, spacing: 2),
-            decoration: InputDecoration(
-              hintText: 'LICK-XXXX-XXXX',
-              filled: true,
-              fillColor: Colors.white,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(16),
-                borderSide: const BorderSide(color: C.line),
-              ),
-            ),
-          ),
-          const SizedBox(height: 14),
-          Btn(
-            'Redeem',
-            onTap: () {
-              Navigator.pop(context);
-              toast(context, 'Gift cards are not available yet');
-            },
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _sendGift(BuildContext context, {String design = 'Happy birthday!'}) {
-    showSheet(
-      context,
-      title: 'Send a gift card',
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Text('Design: $design', style: dm(15, color: C.grey)),
-          const SizedBox(height: 12),
-          TextField(
-            decoration: InputDecoration(
-              labelText: "Friend's phone or email",
-              filled: true,
-              fillColor: Colors.white,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(16),
-              ),
-            ),
-          ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            children: [
-              for (final a in ['\$10', '\$25', '\$50'])
-                PillChip(a, selected: a == '\$25'),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Btn(
-            'Send \$25 gift card',
-            onTap: () {
-              Navigator.pop(context);
-              toast(context, 'Gift card sent! 🎁');
-            },
-          ),
-        ],
-      ),
     );
   }
 }

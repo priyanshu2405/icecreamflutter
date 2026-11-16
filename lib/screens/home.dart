@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../data.dart';
+import '../services/repo.dart';
 import '../theme.dart';
 import '../widgets.dart';
 import 'address_picker.dart';
@@ -26,18 +27,20 @@ class HomeTab extends StatelessWidget {
       builder: (context, _) {
         final top = MediaQuery.of(context).padding.top;
         final delivery = app.mode == Mode.delivery;
-        return SingleChildScrollView(
+        // Pull down to load the latest menu, categories and offers from the admin.
+        return RefreshIndicator(
+          color: C.deep,
+          onRefresh: () => Repo.refresh(force: true),
+          child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.only(bottom: 20),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Stack(
                 children: [
-                  Positioned(
-                    top: 0,
-                    left: 0,
-                    right: 0,
-                    height: top + 226,
+                  // Pink header sized to its content.
+                  Positioned.fill(
                     child: Container(
                       color: C.pink,
                       child: Stack(
@@ -145,8 +148,7 @@ class HomeTab extends StatelessWidget {
                             ],
                           ),
                         ),
-                        const SizedBox(height: 18),
-                        const _NearbyBanner(),
+                        const SizedBox(height: 20),
                       ],
                     ),
                   ),
@@ -178,6 +180,7 @@ class HomeTab extends StatelessWidget {
                             size: 74,
                             radius: 20,
                             icon: categoryIcon[c],
+                            imageUrl: categoryImage[c],
                           ),
                           const SizedBox(height: 8),
                           Text(c, style: dm(13, weight: FontWeight.w700)),
@@ -280,7 +283,7 @@ class HomeTab extends StatelessWidget {
                                     text: 'Snap your treat with our frames, share it, earn ',
                                   ),
                                   TextSpan(
-                                    text: '25 pts',
+                                    text: '${Rules.photoPoints} pts',
                                     style: dm(14, weight: FontWeight.w700),
                                   ),
                                 ],
@@ -299,6 +302,7 @@ class HomeTab extends StatelessWidget {
                 child: CateringCard(),
               ),
             ],
+          ),
           ),
         );
       },
@@ -353,72 +357,8 @@ class _ModeToggle extends StatelessWidget {
       child: Row(
         children: [
           seg('Pickup', !delivery, Mode.pickup),
-          seg('Delivery', delivery, Mode.delivery),
+          if (Rules.deliveryEnabled) seg('Delivery', delivery, Mode.delivery),
         ],
-      ),
-    );
-  }
-}
-
-class _NearbyBanner extends StatelessWidget {
-  const _NearbyBanner();
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: C.ink,
-      borderRadius: BorderRadius.circular(20),
-      elevation: 6,
-      shadowColor: Colors.black38,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(20),
-        onTap: () {
-          app.applyDeal();
-          app.openMenu('Shakes');
-          toast(context, '10% off shakes applied for the next 58 min');
-        },
-        child: Padding(
-          padding: const EdgeInsets.all(14),
-          child: Row(
-            children: [
-              Container(
-                width: 46,
-                height: 46,
-                decoration: const BoxDecoration(
-                  color: C.yellow,
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(Icons.location_on_outlined, color: C.ink),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text.rich(
-                  TextSpan(
-                    children: [
-                      TextSpan(
-                        text: "You're nearby! ",
-                        style: dm(
-                          14.5,
-                          color: Colors.white,
-                          weight: FontWeight.w700,
-                        ),
-                      ),
-                      TextSpan(
-                        text: '10% off all shakes for the next 58 min',
-                        style: dm(14.5, color: Colors.white),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Text(
-                app.dealApplied ? 'On ✓' : 'Use',
-                style: dm(15, color: C.pink, weight: FontWeight.w700),
-              ),
-            ],
-          ),
-        ),
       ),
     );
   }
@@ -442,8 +382,17 @@ class _PickCard extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Expanded(
-                child: Container(
-                  color: item.tile,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    FoodTile(
+                      color: item.tile,
+                      radius: 0,
+                      icon: item.icon,
+                      imageUrl: item.art,
+                      photo: item.hasPhoto,
+                    ),
+                    Container(
                   padding: const EdgeInsets.all(10),
                   alignment: Alignment.topLeft,
                   child: Container(
@@ -457,6 +406,8 @@ class _PickCard extends StatelessWidget {
                     ),
                     child: Text(tag, style: dm(11.5, weight: FontWeight.w700)),
                   ),
+                    ),
+                  ],
                 ),
               ),
               Padding(

@@ -27,10 +27,18 @@ Menu, categories, flavours, toppings, prices, tax / delivery / points rules · s
 
 New files: `lib/config/api_config.dart`, `lib/services/api_client.dart` (HTTP + token), `lib/services/repo.dart` (all backend calls). Existing screens were changed only where they used mock data.
 
+## Latest update: admin changes, camera, payments, help pages
+* **Admin changes show up in the app without reinstalling.** The menu, categories, flavours, prices and settings reload when the app comes back to the foreground, when you switch tabs (at most every 30 s), and when you pull down on Home or Menu.
+* **Ice cream** works like the website menu: every product in the admin's *Ice Cream* category (slug `ice-cream`) appears as a size (Single scoop, Double scoop…). Tap flavours grouped by flavour group, then add. "Single/Double/Triple" in the product name sets how many flavours are included; up to 4 extra scoops.
+* **Photo Booth uses the real camera** (front or back, flash, 3 s timer, PHOTO or STRIP ×4) and puts the frame over the photo. *Share photo* opens the phone's share sheet. Points are added only after the photo is actually shared to an app. Closing the sheet or choosing Save/Copy earns nothing. The server gives the points on the customer's first share only.
+* **Payments match the website checkout:** Pay at pickup / on delivery, Lick It Wallet, Pay online by card, and Wallet + pay the rest online. The fake saved Visa card, Apple/Google Pay and gift card options are gone. Wallet top-up charges the pack the same way the website does.
+* **Help & legal:** one section in Profile. Allergen information, Privacy policy and Terms open as pages inside the app. The text comes from Admin > Settings > Website pages (needs the `/api/v1/pages/{page}` server file from `lickit-backend-update.zip`).
+* New packages: `camera`, `share_plus`. Run `./setup.sh` again (or add the camera permission and the iOS `NSCameraUsageDescription` / `NSPhotoLibraryAddUsageDescription` keys yourself).
+
 ## Still prototype content (not connected yet)
 * Apple / Google / Email sign-in buttons (show a "use your mobile number" message)
-* Stores screen (static single store), geo-offer lock-screen demo, Flavour Finder chat (scripted), "Priya's Pink Stack" saved-creation banner, gift cards, auto-reload, split payment between friends
-* Card payment needs a real gateway on the server (see backend README) — until then `card` orders only work on a demo server
+* Stores screen (static single store), "Priya's Pink Stack" saved-creation banner
+* Card payment: the server uses its built-in payment driver, the same as the website. Taking real card numbers needs a payment gateway (e.g. Stripe) on the server and its card form in the app; the app never collects card numbers itself.
 * Live driver location (the map animates from the order status), push notifications, menu photos in the tiles
 
 > Not compiled in the build environment (no Flutter SDK): run `flutter pub get && flutter analyze` first and fix anything it reports.
@@ -89,18 +97,17 @@ flutter run --release
    - Tap the Vanilla Velvet upsell and "Schedule for later".
 5. **Checkout.**
    - Change the points tiles and watch the GST and total recalculate.
-   - Open **Split payment** (wallet + card, or *With friends*).
+   - Choose how to pay: at pickup, wallet, card online, or wallet + the rest online.
    - **Place order.**
 6. **Tracking.**
    - The order moves from *received* to *making it* to *ready* over about 18 seconds.
    - Flip the top toggle to **Delivery** to show the live map with the moving driver.
    - Tap "I'm here, bring it out" to earn the points.
 7. **Camera button** (centre of the tab bar) **→ Photo Booth.**
-   - Swap frames, turn on the 3s timer and tap the shutter.
-   - On the share screen, the first share earns +25 pts.
+   - Allow the camera, swap frames, turn on the 3s timer and tap the shutter.
+   - Tap *Share photo* and pick an app. The first completed share earns the points.
 8. **Rewards.** Redeem a reward and watch the points drop. Tap *Wallet* to top up and see the bonus points.
 9. **Home → "AI" chip → Flavour Finder.** Tap *Fruity* or type "something fruity, no nuts".
-10. **Profile → Prototype demos → Nearby offer notification.** This shows the lock-screen geofence alert.
 
 ## 5. What's real and what's mocked
 
@@ -118,7 +125,7 @@ Mocked or simulated:
 - push notifications (shown as a demo screen)
 - the AI recommendations (scripted)
 
-The **photo booth uses a sample photo of the store sign** in place of the live camera. Food photos are coloured placeholder tiles, as in the design file. Real photos, the camera, maps, payments and a backend are next-phase work.
+The photo booth uses the phone's camera (see "Latest update" at the top).
 
 ## Project layout
 

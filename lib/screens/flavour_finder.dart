@@ -81,7 +81,7 @@ const _picks = <String, List<_Pick>>{
     _Pick(
       'goldenhour',
       87,
-      'Biscoff & caramel with a shot of espresso on request. 10% off nearby.',
+      'Biscoff & caramel with a shot of espresso on request.',
     ),
   ],
   'Sharing': [
@@ -402,6 +402,8 @@ class _FlavourFinderScreenState extends State<FlavourFinderScreen> {
                         size: 92,
                         radius: 18,
                         icon: item.icon,
+                        imageUrl: item.art,
+                        photo: item.hasPhoto,
                       ),
                       const SizedBox(width: 14),
                       Expanded(

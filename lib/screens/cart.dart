@@ -21,6 +21,14 @@ class CartScreen extends StatefulWidget {
 }
 
 class _CartScreenState extends State<CartScreen> {
+  /// A Featured menu item (Admin > Menu items > Featured) that can go straight in the cart.
+  MenuItem? _upsell() {
+    for (final m in menu) {
+      if (m.featured && !m.isIceCream && !app.inCart(m.id) && !byoItems.any((b) => b.id == m.id)) return m;
+    }
+    return null;
+  }
+
   ScheduledTime? _scheduled;
 
   Future<void> _schedule() async {
@@ -97,28 +105,28 @@ class _CartScreenState extends State<CartScreen> {
                               _CartLineCard(line: l),
                               const SizedBox(height: 12),
                             ],
-                            if (!app.inCart('velvet'))
+                            // "Add a …?" suggestion: a Featured item from the admin that isn't in the cart yet.
+                            if (_upsell() case final up?)
                               Material(
                                 color: C.blush,
                                 borderRadius: BorderRadius.circular(18),
                                 child: InkWell(
                                   borderRadius: BorderRadius.circular(18),
                                   onTap: () {
-                                    app.add(itemById('velvet'));
-                                    toast(
-                                      context,
-                                      'Added Vanilla Velvet Cloud',
-                                    );
+                                    app.add(up);
+                                    toast(context, 'Added ${up.name}');
                                   },
                                   child: Padding(
                                     padding: const EdgeInsets.all(14),
                                     child: Row(
                                       children: [
                                         FoodTile(
-                                          color: const Color(0xFFFFF4DA),
+                                          color: up.tile,
                                           size: 44,
                                           radius: 12,
-                                          icon: Icons.icecream_outlined,
+                                          icon: up.icon,
+                                          imageUrl: up.art,
+                                          photo: up.hasPhoto,
                                         ),
                                         const SizedBox(width: 12),
                                         Expanded(
@@ -127,28 +135,15 @@ class _CartScreenState extends State<CartScreen> {
                                               style: dm(14.5),
                                               children: [
                                                 const TextSpan(text: 'Add a '),
-                                                TextSpan(
-                                                  text: 'Vanilla Velvet Cloud',
-                                                  style: dm(
-                                                    14.5,
-                                                    weight: FontWeight.w700,
-                                                  ),
-                                                ),
-                                                const TextSpan(
-                                                  text:
-                                                      '? Pairs with chocolate.',
-                                                ),
+                                                TextSpan(text: up.name, style: dm(14.5, weight: FontWeight.w700)),
+                                                const TextSpan(text: '?'),
                                               ],
                                             ),
                                           ),
                                         ),
                                         Text(
-                                          '+ \$6.75',
-                                          style: dm(
-                                            15,
-                                            color: C.deep,
-                                            weight: FontWeight.w700,
-                                          ),
+                                          '+ ${money(up.price)}',
+                                          style: dm(15, color: C.deep, weight: FontWeight.w700),
                                         ),
                                       ],
                                     ),
@@ -332,9 +327,9 @@ class _ModeSegment extends StatelessWidget {
       ),
       child: Row(
         children: [
+          // Same choices as the website checkout (Delivery only when it's on in the admin).
           seg(Mode.pickup, 'Pickup', '~15 min'),
-          seg(Mode.delivery, 'Delivery', '30–40 min'),
-          seg(Mode.dineIn, 'Dine-in', 'Order to table'),
+          if (Rules.deliveryEnabled) seg(Mode.delivery, 'Delivery', '30–40 min'),
         ],
       ),
     );
@@ -351,7 +346,7 @@ class _CartLineCard extends StatelessWidget {
       padding: const EdgeInsets.all(12),
       child: Row(
         children: [
-          FoodTile(color: line.item.tile, size: 70, icon: line.item.icon),
+          FoodTile(color: line.item.tile, size: 70, icon: line.item.icon, imageUrl: line.item.art, photo: line.item.hasPhoto),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -410,7 +405,8 @@ class _BottomBar extends StatelessWidget {
 // A08 Checkout
 // ---------------------------------------------------------------------------
 
-enum PayMethod { counter, card, wallet, tap, gift }
+/// The same four choices as the website checkout.
+enum PayMethod { counter, wallet, card, split }
 
 /// A "schedule for later" choice: a server slot, or (older servers) any time.
 class ScheduledTime {
@@ -492,7 +488,16 @@ class CheckoutScreen extends StatefulWidget {
 }
 
 class _CheckoutScreenState extends State<CheckoutScreen> {
-  late int _pts = app.points >= 200 ? 200 : 0;
+  // Points choices in whole-dollar steps at the admin's point value (\$1, \$2, \$4 off).
+  static List<int> get _ptsSteps => [0, pointsPerDollar, pointsPerDollar * 2, pointsPerDollar * 4];
+  static String _pct(double rate) {
+    final v = rate * 100;
+    return v == v.roundToDouble() ? v.round().toString() : v.toStringAsFixed(2).replaceAll(RegExp(r'0+$'), '');
+  }
+
+  // Points can't be worth more than the order (the server refuses that).
+  static bool _ptsFit(int p) => p * Rules.pointValue <= app.subtotal + app.deliveryFee + 0.001;
+  late int _pts = app.points >= _ptsSteps[2] && _ptsFit(_ptsSteps[2]) ? _ptsSteps[2] : 0;
   PayMethod _pay = PayMethod.counter; // pay at pickup / on delivery, like the website
 
   String _summary(BuildContext context) {
@@ -510,28 +515,42 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     };
   }
 
+  // Availability rules copied from the website checkout.
+  bool get _signedIn => Api.hasToken;
+  bool get _online => Rules.onlinePayments;
+  bool _walletOk(double total) => _signedIn && app.wallet + 0.001 >= total;
+  bool _splitOk(double total) => _signedIn && _online && app.wallet > 0.005 && app.wallet + 0.001 < total;
+
+  /// The choice actually used: falls back to paying at the counter if the
+  /// picked option stopped applying (e.g. points made the total change).
+  PayMethod _effective(double total) => switch (_pay) {
+    PayMethod.wallet when _walletOk(total) => PayMethod.wallet,
+    PayMethod.split when _splitOk(total) => PayMethod.split,
+    PayMethod.card when _online => PayMethod.card,
+    _ => PayMethod.counter,
+  };
+
   Future<void> _place() async {
+    // Same checks as the website, taken from Admin > Settings.
+    if (!Rules.orderingEnabled) {
+      toast(context, 'Online ordering is paused right now.');
+      return;
+    }
+    if (Rules.minOrder > 0 && app.subtotal + 0.001 < Rules.minOrder) {
+      toast(context, 'The minimum order is ${money(Rules.minOrder)}. Add ${money(Rules.minOrder - app.subtotal)} more.');
+      return;
+    }
     final total = app.total(_pts);
-    if (_pay == PayMethod.wallet && app.wallet < total) {
-      toast(
-        context,
-        'Wallet has ${money(app.wallet)}. Try Split payment to cover the rest.',
-      );
-      return;
-    }
-    if (_pay == PayMethod.gift) {
-      toast(context, 'Enter a gift card code first, or choose another method');
-      return;
-    }
-    if (!Rules.onlinePayments && (_pay == PayMethod.card || _pay == PayMethod.tap)) {
-      toast(context, 'Online payment is not available right now. Please pay at the counter or use your wallet.');
-      return;
-    }
+    final pay = _effective(total);
     await runPayment(
       context,
       ptsUsed: _pts,
-      walletUsed: _pay == PayMethod.wallet ? total : 0,
-      payAtStore: _pay == PayMethod.counter,
+      walletUsed: switch (pay) {
+        PayMethod.wallet => total,
+        PayMethod.split => round2(app.wallet),
+        _ => 0,
+      },
+      payAtStore: pay == PayMethod.counter,
       scheduledFor: widget.scheduled?.at,
       scheduledSlot: widget.scheduled?.slot,
     );
@@ -539,8 +558,8 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final isIOS = Theme.of(context).platform == TargetPlatform.iOS;
     final total = app.total(_pts);
+    final pay = _effective(total);
     return Scaffold(
       body: SafeArea(
         bottom: false,
@@ -572,7 +591,6 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                               15,
                               color: C.blue,
                               weight: FontWeight.w700,
-                              decoration: TextDecoration.underline,
                             ),
                           ),
                         ),
@@ -616,7 +634,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                         const SizedBox(height: 14),
                         Row(
                           children: [
-                            for (final p in [0, 100, 200, 400]) ...[
+                            for (final p in _ptsSteps) ...[
                               if (p != 0) const SizedBox(width: 8),
                               Expanded(child: _ptsTile(p)),
                             ],
@@ -624,7 +642,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                         ),
                         const SizedBox(height: 12),
                         Text(
-                          "100 pts = \$1.00 (proposed rate) · you'll still earn ${total.floor()} pts",
+                          "$pointsPerDollar points = ${money(1)} off · you'll still earn ${total.floor()} pts",
                           style: dm(12.5, color: Colors.white70),
                         ),
                       ],
@@ -666,88 +684,56 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                     child: Column(
                       children: [
                         _payRow(
+                          pay,
                           PayMethod.counter,
-                          const MiniBadge('PAY', C.deep),
-                          switch (app.mode) {
-                            Mode.pickup => 'Pay at pickup',
-                            Mode.delivery => 'Pay on delivery',
-                            Mode.dineIn => 'Pay at the counter',
-                          },
+                          Icons.storefront_outlined,
+                          app.mode == Mode.delivery ? 'Pay on delivery' : 'Pay at pickup',
                           'Card or cash at the counter',
+                          enabled: true,
                         ),
                         const Divider(height: 1, color: C.line),
                         _payRow(
+                          pay,
                           PayMethod.wallet,
-                          const MiniBadge('LICK', C.pink),
+                          Icons.account_balance_wallet_outlined,
                           'Lick It Wallet',
-                          '${money(app.wallet)} balance',
+                          _signedIn ? '${money(app.wallet)} balance' : 'Sign in to use',
+                          enabled: _walletOk(total),
+                          why: !_signedIn
+                              ? 'Sign in to use your wallet.'
+                              : (app.wallet > 0.005 && _online
+                                    ? "Your wallet doesn't cover the whole order. Choose 'Wallet + pay the rest online'."
+                                    : 'Your wallet balance is too low for this order.'),
                         ),
-                        // Online payment options only when the server accepts them (same as the website).
-                        if (Rules.onlinePayments) ...[
+                        const Divider(height: 1, color: C.line),
+                        _payRow(
+                          pay,
+                          PayMethod.card,
+                          Icons.credit_card_rounded,
+                          'Pay online by card',
+                          _online ? 'Credit or debit card' : 'Coming soon',
+                          enabled: _online,
+                          why: 'Online card payment is coming soon.',
+                        ),
+                        if (_signedIn && _online) ...[
                           const Divider(height: 1, color: C.line),
                           _payRow(
-                            PayMethod.card,
-                            const MiniBadge('VISA', Color(0xFF1A1F71)),
-                            'Visa •• 4821',
-                            'Expires 08/29',
-                          ),
-                          const Divider(height: 1, color: C.line),
-                          _payRow(
-                            PayMethod.tap,
-                            const MiniBadge('PAY', C.ink),
-                            isIOS ? 'Apple Pay' : 'Google Pay',
-                            'Pay with one tap',
-                          ),
-                          const Divider(height: 1, color: C.line),
-                          _payRow(
-                            PayMethod.gift,
-                            const MiniBadge('GIFT', C.waffle),
-                            'Gift card',
-                            'Add a code',
+                            pay,
+                            PayMethod.split,
+                            Icons.call_split_rounded,
+                            'Wallet + pay the rest online',
+                            app.wallet > 0.005
+                                ? (app.wallet + 0.001 >= total
+                                      ? 'Your wallet already covers this order'
+                                      : '${money(app.wallet)} from wallet · ${money(total - app.wallet)} online')
+                                : 'Add money to your wallet first',
+                            enabled: _splitOk(total),
+                            why: app.wallet + 0.001 >= total
+                                ? 'Your wallet covers the whole order. Choose Lick It Wallet.'
+                                : 'Add money to your wallet first.',
                           ),
                         ],
                       ],
-                    ),
-                  ),
-                  if (Rules.onlinePayments) const SizedBox(height: 14),
-                  if (Rules.onlinePayments) Dashed(
-                    fill: C.blush,
-                    onTap: () => push(context, SplitPayScreen(ptsUsed: _pts)),
-                    child: Padding(
-                      padding: const EdgeInsets.all(14),
-                      child: Row(
-                        children: [
-                          Container(
-                            width: 44,
-                            height: 44,
-                            decoration: const BoxDecoration(
-                              color: C.deep,
-                              shape: BoxShape.circle,
-                            ),
-                            child: const Icon(
-                              Icons.call_split_rounded,
-                              color: Colors.white,
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'Split payment',
-                                  style: dm(15.5, weight: FontWeight.w700),
-                                ),
-                                Text(
-                                  'Split across cards, wallet & points, or with friends',
-                                  style: dm(13, color: C.grey),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const Icon(Icons.chevron_right_rounded),
-                        ],
-                      ),
                     ),
                   ),
                   const SizedBox(height: 18),
@@ -757,14 +743,14 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                   if (_pts > 0)
                     Row2(
                       'Points ($_pts)',
-                      '−${money(_pts / 100)}',
+                      '−${money(_pts * Rules.pointValue)}',
                       rightStyle: dm(
                         15,
                         color: C.green,
                         weight: FontWeight.w700,
                       ),
                     ),
-                  Row2('GST (5%)', money(app.gst(_pts))),
+                  Row2('GST (${_pct(Rules.gstRate)}%)', money(app.gst(_pts))),
                 ],
               ),
             ),
@@ -791,11 +777,11 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
 
   Widget _ptsTile(int p) {
     final sel = _pts == p;
-    final enabled = p <= app.points;
+    final enabled = p <= app.points && _ptsFit(p);
     return GestureDetector(
       onTap: enabled
           ? () => setState(() => _pts = p)
-          : () => toast(context, 'You need $p pts for this'),
+          : () => toast(context, p > app.points ? 'You need $p pts for this' : 'That is more than this order costs'),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 180),
         padding: const EdgeInsets.symmetric(vertical: 10),
@@ -820,7 +806,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                 ),
               ),
               Text(
-                p == 0 ? '\$0' : '−${money(p / 100)}',
+                p == 0 ? money(0) : '−${money(p * Rules.pointValue)}',
                 style: dm(11.5, color: sel ? C.ink : Colors.white70),
               ),
             ],
@@ -830,26 +816,47 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     );
   }
 
-  Widget _payRow(PayMethod m, Widget badge, String title, String sub) {
-    return InkWell(
-      onTap: () => setState(() => _pay = m),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-        child: Row(
-          children: [
-            badge,
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(title, style: dm(15.5, weight: FontWeight.w700)),
-                  Text(sub, style: dm(12.5, color: C.grey)),
-                ],
-              ),
+  Widget _payRow(
+    PayMethod current,
+    PayMethod m,
+    IconData icon,
+    String title,
+    String sub, {
+    required bool enabled,
+    String? why,
+  }) {
+    final on = current == m;
+    return Material(
+      color: on ? C.blush : (enabled ? Colors.white : const Color(0xFFF6F1F3)),
+      child: InkWell(
+        onTap: () {
+          if (!enabled) {
+            toast(context, why ?? 'That option is not available for this order.');
+            return;
+          }
+          setState(() => _pay = m);
+        },
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          child: Opacity(
+            opacity: enabled ? 1 : 0.55,
+            child: Row(
+              children: [
+                Icon(icon, color: C.deep),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(title, style: dm(15.5, weight: FontWeight.w700)),
+                      Text(sub, style: dm(12.5, color: C.grey)),
+                    ],
+                  ),
+                ),
+                RadioDot(on),
+              ],
             ),
-            RadioDot(_pay == m),
-          ],
+          ),
         ),
       ),
     );
@@ -914,308 +921,4 @@ Future<void> runPayment(
     MaterialPageRoute(builder: (_) => TrackingScreen(order: order)),
     (r) => r.isFirst,
   );
-}
-
-// ---------------------------------------------------------------------------
-// A09 Split payment
-// ---------------------------------------------------------------------------
-
-class SplitPayScreen extends StatefulWidget {
-  final int ptsUsed;
-  const SplitPayScreen({super.key, required this.ptsUsed});
-
-  @override
-  State<SplitPayScreen> createState() => _SplitPayScreenState();
-}
-
-class _SplitPayScreenState extends State<SplitPayScreen> {
-  bool _friends = false;
-  final Set<String> _requested = {};
-
-  @override
-  Widget build(BuildContext context) {
-    final total = app.total(widget.ptsUsed);
-    final walletPart = round2(app.wallet.clamp(0.0, total));
-    final cardPart = round2(total - walletPart);
-    final share = round2(total / 3);
-    return Scaffold(
-      body: SafeArea(
-        bottom: false,
-        child: Column(
-          children: [
-            const ScreenHeader('Split payment', cart: false),
-            Expanded(
-              child: ListView(
-                padding: const EdgeInsets.fromLTRB(16, 4, 16, 20),
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(18),
-                    decoration: BoxDecoration(
-                      color: C.pink,
-                      borderRadius: BorderRadius.circular(22),
-                    ),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Order total',
-                                style: dm(15, color: Colors.white),
-                              ),
-                              Text(
-                                widget.ptsUsed > 0
-                                    ? 'after ${widget.ptsUsed} pts · incl. GST'
-                                    : 'incl. GST',
-                                style: dm(12.5, color: Colors.white70),
-                              ),
-                            ],
-                          ),
-                        ),
-                        Text(
-                          money(total),
-                          style: fred(32, color: Colors.white),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  Container(
-                    padding: const EdgeInsets.all(5),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(30),
-                      border: Border.all(color: C.line, width: 1.2),
-                    ),
-                    child: Row(
-                      children: [
-                        _seg(
-                          'Cards, wallet & points',
-                          !_friends,
-                          () => setState(() => _friends = false),
-                        ),
-                        _seg(
-                          'With friends',
-                          _friends,
-                          () => setState(() => _friends = true),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  if (!_friends) ...[
-                    Text(
-                      'Use more than one way to pay. We charge the last method for whatever is left.',
-                      style: dm(14, color: C.grey, height: 1.4),
-                    ),
-                    const SizedBox(height: 12),
-                    _methodCard(
-                      const MiniBadge('LICK', C.pink),
-                      'Lick It Wallet',
-                      'Balance ${money(app.wallet)} · use all',
-                      walletPart,
-                    ),
-                    const SizedBox(height: 10),
-                    _methodCard(
-                      const MiniBadge('VISA', Color(0xFF1A1F71)),
-                      'Visa •• 4821',
-                      'Pays the remainder',
-                      cardPart,
-                    ),
-                    const SizedBox(height: 10),
-                    Dashed(
-                      color: const Color(0xFFBDB2B6),
-                      onTap: () =>
-                          toast(context, 'Gift card / card entry opens here'),
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Row(
-                          children: [
-                            Container(
-                              width: 40,
-                              height: 30,
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(6),
-                                border: Border.all(
-                                  color: const Color(0xFFBDB2B6),
-                                ),
-                              ),
-                              child: const Icon(Icons.add, size: 18),
-                            ),
-                            const SizedBox(width: 14),
-                            Text(
-                              'Add gift card or another card',
-                              style: dm(15, weight: FontWeight.w500),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 14,
-                        vertical: 10,
-                      ),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFE3F4E8),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Text(
-                        '✓ Fully covered: ${money(walletPart)} + ${money(cardPart)} = ${money(total)}',
-                        style: dm(
-                          13.5,
-                          color: C.green,
-                          weight: FontWeight.w700,
-                        ),
-                      ),
-                    ),
-                  ] else ...[
-                    Text(
-                      'Send a request and everyone pays their share from their own Lick It app.',
-                      style: dm(14, color: C.grey, height: 1.4),
-                    ),
-                    const SizedBox(height: 12),
-                    _friendRow('You', 'PS', C.pink, share, me: true),
-                    const SizedBox(height: 10),
-                    _friendRow('Aman K.', 'AK', C.waffle, share),
-                    const SizedBox(height: 10),
-                    _friendRow(
-                      'Neha R.',
-                      'NR',
-                      const Color(0xFF8FD3FF),
-                      round2(total - share * 2),
-                    ),
-                    const SizedBox(height: 12),
-                    Btn(
-                      'Invite with a link',
-                      style: BtnStyle.outline,
-                      icon: Icons.link_rounded,
-                      onTap: () =>
-                          toast(context, 'Payment link copied to clipboard'),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-            _BottomBar(
-              child: Btn(
-                _friends
-                    ? 'Pay my share · ${money(share)}'
-                    : 'Pay ${money(total)} · 2 methods',
-                onTap: () {
-                  if (_friends && _requested.length < 2) {
-                    toast(context, 'Send requests to your friends first');
-                    return;
-                  }
-                  runPayment(
-                    context,
-                    ptsUsed: widget.ptsUsed,
-                    walletUsed: _friends ? 0 : walletPart,
-                  );
-                },
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _seg(String label, bool sel, VoidCallback onTap) => Expanded(
-    child: GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(vertical: 12),
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: sel ? C.ink : Colors.transparent,
-          borderRadius: BorderRadius.circular(26),
-        ),
-        child: Text(
-          label,
-          style: dm(
-            14,
-            weight: FontWeight.w700,
-            color: sel ? Colors.white : C.ink,
-          ),
-        ),
-      ),
-    ),
-  );
-
-  Widget _methodCard(Widget badge, String title, String sub, double amount) {
-    return CardBox(
-      border: C.deep,
-      borderWidth: 2,
-      padding: const EdgeInsets.all(14),
-      child: Row(
-        children: [
-          badge,
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title, style: dm(15.5, weight: FontWeight.w700)),
-                Text(sub, style: dm(12.5, color: C.grey)),
-              ],
-            ),
-          ),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: C.line, width: 1.5),
-            ),
-            child: Text(money(amount), style: dm(16, weight: FontWeight.w700)),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _friendRow(
-    String name,
-    String initials,
-    Color color,
-    double amount, {
-    bool me = false,
-  }) {
-    final sent = _requested.contains(name);
-    return CardBox(
-      padding: const EdgeInsets.all(12),
-      child: Row(
-        children: [
-          CircleAvatar(
-            radius: 20,
-            backgroundColor: color,
-            child: Text(
-              initials,
-              style: dm(13, color: Colors.white, weight: FontWeight.w700),
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(name, style: dm(15.5, weight: FontWeight.w700)),
-                Text(money(amount), style: dm(13, color: C.grey)),
-              ],
-            ),
-          ),
-          if (!me)
-            PillChip(
-              sent ? 'Requested ✓' : 'Request',
-              selected: sent,
-              fontSize: 13,
-              onTap: () => setState(() => _requested.add(name)),
-            ),
-        ],
-      ),
-    );
-  }
 }

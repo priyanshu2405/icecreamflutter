@@ -1,9 +1,15 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 
+import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../data.dart';
+import '../services/api_client.dart';
 import '../services/repo.dart';
 import '../theme.dart';
 import '../widgets.dart';
@@ -35,18 +41,34 @@ const frames = [
   FrameStyle('Birthday', Color(0xFF9AD8FF), C.pink, sprinkles: true),
 ];
 
-/// The framed photo. The prototype uses a sample photo of the store sign in
-/// place of the live camera feed.
+/// A photo taken in the booth. Front-camera shots are mirrored so the
+/// result looks the same as the live preview did.
+class BoothShot {
+  final String path;
+  final bool mirrored;
+  const BoothShot(this.path, {this.mirrored = false});
+}
+
+/// The Lick It frame drawn over [child]: the live camera on the booth screen,
+/// or the captured photo on the share screen.
 class BoothFrame extends StatelessWidget {
   final FrameStyle style;
   final double scale;
   final double radius;
+  final Widget? child;
   const BoothFrame({
     super.key,
     required this.style,
+    this.child,
     this.scale = 1,
     this.radius = 26,
   });
+
+  /// The captured photo, filling the frame.
+  static Widget photo(BoothShot shot) => Transform.flip(
+    flipX: shot.mirrored,
+    child: Image.file(File(shot.path), fit: BoxFit.cover, gaplessPlayback: true),
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -55,7 +77,7 @@ class BoothFrame extends StatelessWidget {
       child: Stack(
         fit: StackFit.expand,
         children: [
-          Image.asset('assets/images/booth.jpg', fit: BoxFit.cover),
+          child ?? const ColoredBox(color: Color(0xFF2A2023)),
           if (style.tint != null) Container(color: style.tint),
           Container(
             decoration: BoxDecoration(
@@ -110,7 +132,9 @@ class BoothFrame extends StatelessWidget {
                     borderRadius: BorderRadius.circular(20 * scale),
                   ),
                   child: Text(
-                    'LICK IT · CITY PKWY · SURREY',
+                    'LICK IT · ${app.storeShort.toUpperCase()}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                     style: fred(
                       12 * scale,
                       color: Colors.white,
@@ -209,8 +233,9 @@ class _SprinklePainter extends CustomPainter {
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
+
 // ---------------------------------------------------------------------------
-// A15 Photo booth
+// A15 Photo booth: live camera inside the frame
 // ---------------------------------------------------------------------------
 
 class PhotoBoothScreen extends StatefulWidget {
@@ -220,38 +245,204 @@ class PhotoBoothScreen extends StatefulWidget {
   State<PhotoBoothScreen> createState() => _PhotoBoothScreenState();
 }
 
-class _PhotoBoothScreenState extends State<PhotoBoothScreen> {
+class _PhotoBoothScreenState extends State<PhotoBoothScreen> with WidgetsBindingObserver {
   int _frame = 0;
-  int _mode = 1; // 0 boomerang, 1 photo, 2 strip
+  bool _strip = false; // PHOTO or STRIP ×4
   bool _timer = false;
   bool _flash = false;
   int? _count;
+  String? _progress; // "2 / 4" while a strip is being taken
   bool _flashOverlay = false;
-  bool _front = false;
+  bool _busy = false;
 
-  Future<void> _shoot() async {
-    if (_count != null) return;
+  List<CameraDescription> _cameras = const [];
+  CameraController? _cam;
+  bool _front = true;
+  String? _camError;
+  List<BoothShot>? _last; // last shots this session (thumbnail bottom-left)
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _startCamera();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _cam?.dispose();
+    super.dispose();
+  }
+
+  // The camera must be released when the app goes to the background and
+  // re-opened when it comes back (required on both Android and iOS).
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final cam = _cam;
+    if (state == AppLifecycleState.inactive) {
+      _cam = null;
+      cam?.dispose();
+      if (mounted) setState(() {});
+    } else if (state == AppLifecycleState.resumed && cam == null) {
+      _startCamera();
+    }
+  }
+
+  CameraDescription? _pick() {
+    final want = _front ? CameraLensDirection.front : CameraLensDirection.back;
+    for (final c in _cameras) {
+      if (c.lensDirection == want) return c;
+    }
+    return _cameras.isEmpty ? null : _cameras.first;
+  }
+
+  Future<void> _startCamera() async {
+    try {
+      if (_cameras.isEmpty) _cameras = await availableCameras();
+      final desc = _pick();
+      if (desc == null) {
+        setState(() => _camError = 'No camera found on this device.');
+        return;
+      }
+      _front = desc.lensDirection == CameraLensDirection.front;
+      final cam = CameraController(desc, ResolutionPreset.high, enableAudio: false);
+      await cam.initialize();
+      if (!mounted) {
+        await cam.dispose();
+        return;
+      }
+      final old = _cam;
+      setState(() {
+        _cam = cam;
+        _camError = null;
+      });
+      await old?.dispose();
+    } on CameraException catch (e) {
+      if (!mounted) return;
+      final denied = e.code.contains('AccessDenied') || e.code.contains('AccessRestricted') || e.code.contains('Permission');
+      setState(
+        () => _camError = denied
+            ? 'Lick It needs your camera for the Photo Booth. Allow camera access for Lick It in your phone Settings, then come back.'
+            : "The camera couldn't start (${e.description ?? e.code}).",
+      );
+    }
+  }
+
+  Future<void> _flip() async {
+    if (_busy || _cameras.length < 2) return;
+    final old = _cam;
+    setState(() {
+      _front = !_front;
+      _cam = null;
+    });
+    await old?.dispose();
+    await _startCamera();
+  }
+
+  Future<BoothShot?> _takeOne() async {
+    final cam = _cam;
+    if (cam == null || !cam.value.isInitialized) return null;
     if (_timer) {
       for (var i = 3; i > 0; i--) {
         setState(() => _count = i);
         await Future<void>.delayed(const Duration(seconds: 1));
-        if (!mounted) return;
+        if (!mounted) return null;
       }
       setState(() => _count = null);
     }
+    try {
+      await cam.setFlashMode(_flash ? FlashMode.always : FlashMode.off);
+    } on CameraException {
+      // Front cameras usually have no flash; carry on without it.
+    }
+    final file = await cam.takePicture();
+    if (!mounted) return null;
     setState(() => _flashOverlay = true);
-    await Future<void>.delayed(const Duration(milliseconds: 160));
-    if (!mounted) return;
-    setState(() => _flashOverlay = false);
-    await Future<void>.delayed(const Duration(milliseconds: 200));
-    if (!mounted) return;
-    push(context, PhotoShareScreen(style: frames[_frame], strip: _mode == 2));
+    await Future<void>.delayed(const Duration(milliseconds: 140));
+    if (mounted) setState(() => _flashOverlay = false);
+    return BoothShot(file.path, mirrored: _front);
+  }
+
+  Future<void> _shoot() async {
+    if (_busy) return;
+    if (_cam == null) {
+      toast(context, _camError ?? 'The camera is starting…');
+      return;
+    }
+    setState(() => _busy = true);
+    try {
+      final shots = <BoothShot>[];
+      final n = _strip ? 4 : 1;
+      for (var i = 0; i < n; i++) {
+        if (n > 1) setState(() => _progress = '${i + 1} / $n');
+        final s = await _takeOne();
+        if (s == null) return;
+        shots.add(s);
+        if (i < n - 1) await Future<void>.delayed(const Duration(milliseconds: 900));
+        if (!mounted) return;
+      }
+      _last = shots;
+      if (!mounted) return;
+      push(context, PhotoShareScreen(style: frames[_frame], shots: shots));
+    } on CameraException catch (e) {
+      if (mounted) toast(context, "Couldn't take the photo (${e.description ?? e.code})");
+    } finally {
+      if (mounted) {
+        setState(() {
+          _busy = false;
+          _count = null;
+          _progress = null;
+        });
+      }
+    }
+  }
+
+  Widget _live() {
+    final cam = _cam;
+    if (cam == null || !cam.value.isInitialized) {
+      return ColoredBox(
+        color: const Color(0xFF2A2023),
+        child: Center(
+          child: _camError == null
+              ? const CircularProgressIndicator(color: Colors.white)
+              : Padding(
+                  padding: const EdgeInsets.all(32),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.no_photography_outlined, color: Colors.white70, size: 40),
+                      const SizedBox(height: 12),
+                      Text(
+                        _camError!,
+                        textAlign: TextAlign.center,
+                        style: dm(14.5, color: Colors.white, height: 1.4),
+                      ),
+                      const SizedBox(height: 14),
+                      Btn('Try again', expand: false, height: 44, fontSize: 15, onTap: _startCamera),
+                    ],
+                  ),
+                ),
+        ),
+      );
+    }
+    // Fill the frame with the preview (the preview's aspect ratio is long side / short side).
+    return FittedBox(
+      fit: BoxFit.cover,
+      clipBehavior: Clip.hardEdge,
+      child: SizedBox(
+        width: 100,
+        height: 100 * cam.value.aspectRatio,
+        child: CameraPreview(cam),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final top = MediaQuery.of(context).padding.top;
     final bottom = MediaQuery.of(context).padding.bottom;
+    final last = _last;
     return Scaffold(
       backgroundColor: const Color(0xFF15100F),
       body: Column(
@@ -263,14 +454,7 @@ class _PhotoBoothScreenState extends State<PhotoBoothScreen> {
                 Positioned.fill(
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(10, 0, 10, 0),
-                    child: AnimatedSwitcher(
-                      duration: const Duration(milliseconds: 250),
-                      child: Transform.flip(
-                        key: ValueKey('$_frame-$_front'),
-                        flipX: _front,
-                        child: BoothFrame(style: frames[_frame]),
-                      ),
-                    ),
+                    child: BoothFrame(style: frames[_frame], child: _live()),
                   ),
                 ),
                 Positioned(
@@ -293,38 +477,40 @@ class _PhotoBoothScreenState extends State<PhotoBoothScreen> {
                           height: 44,
                           alignment: Alignment.center,
                           decoration: BoxDecoration(
-                            color: _timer
-                                ? C.yellow
-                                : Colors.black.withValues(alpha: 0.45),
+                            color: _timer ? C.yellow : Colors.black.withValues(alpha: 0.45),
                             shape: BoxShape.circle,
                           ),
                           child: Text(
                             '3s',
-                            style: dm(
-                              14,
-                              color: _timer ? C.ink : Colors.white,
-                              weight: FontWeight.w700,
-                            ),
+                            style: dm(14, color: _timer ? C.ink : Colors.white, weight: FontWeight.w700),
                           ),
                         ),
                       ),
                       const SizedBox(width: 10),
                       _roundIcon(
-                        _flash
-                            ? Icons.flash_on_rounded
-                            : Icons.flash_off_rounded,
+                        _flash ? Icons.flash_on_rounded : Icons.flash_off_rounded,
                         () => setState(() => _flash = !_flash),
                         active: _flash,
                       ),
                     ],
                   ),
                 ),
+                if (_progress != null)
+                  Positioned(
+                    top: 66,
+                    left: 0,
+                    right: 0,
+                    child: Center(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                        decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(20)),
+                        child: Text(_progress!, style: dm(14, color: Colors.white, weight: FontWeight.w700)),
+                      ),
+                    ),
+                  ),
                 if (_count != null)
                   Center(
-                    child: Text(
-                      '$_count',
-                      style: fred(120, color: Colors.white, height: 1),
-                    ),
+                    child: Text('$_count', style: fred(120, color: Colors.white, height: 1)),
                   ),
                 IgnorePointer(
                   child: AnimatedOpacity(
@@ -366,11 +552,7 @@ class _PhotoBoothScreenState extends State<PhotoBoothScreen> {
                       const SizedBox(height: 6),
                       Text(
                         frames[i].name,
-                        style: dm(
-                          12,
-                          color: sel ? Colors.white : Colors.white60,
-                          weight: FontWeight.w700,
-                        ),
+                        style: dm(12, color: sel ? Colors.white : Colors.white60, weight: FontWeight.w700),
                       ),
                     ],
                   ),
@@ -384,20 +566,23 @@ class _PhotoBoothScreenState extends State<PhotoBoothScreen> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
+                // Your last shot this session: tap to share it again.
                 GestureDetector(
-                  onTap: () => toast(context, 'Your Lick It photos live here'),
+                  onTap: last == null
+                      ? null
+                      : () => push(context, PhotoShareScreen(style: frames[_frame], shots: last)),
                   child: Container(
                     width: 52,
                     height: 52,
                     clipBehavior: Clip.antiAlias,
                     decoration: BoxDecoration(
+                      color: Colors.white10,
                       borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: Colors.white, width: 2),
+                      border: Border.all(color: last == null ? Colors.white24 : Colors.white, width: 2),
                     ),
-                    child: Image.asset(
-                      'assets/images/booth.jpg',
-                      fit: BoxFit.cover,
-                    ),
+                    child: last == null
+                        ? const Icon(Icons.photo_outlined, color: Colors.white38)
+                        : BoothFrame.photo(last.first),
                   ),
                 ),
                 GestureDetector(
@@ -410,18 +595,18 @@ class _PhotoBoothScreenState extends State<PhotoBoothScreen> {
                       shape: BoxShape.circle,
                       border: Border.all(color: Colors.white, width: 4),
                     ),
-                    child: Container(
-                      decoration: const BoxDecoration(
-                        color: C.pink,
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 150),
+                      decoration: BoxDecoration(
+                        color: _busy ? C.deep : C.pink,
                         shape: BoxShape.circle,
                       ),
                     ),
                   ),
                 ),
-                _roundIcon(
-                  Icons.flip_camera_ios_outlined,
-                  () => setState(() => _front = !_front),
-                  size: 52,
+                Opacity(
+                  opacity: _cameras.length < 2 ? 0.35 : 1,
+                  child: _roundIcon(Icons.flip_camera_ios_outlined, _flip, size: 52),
                 ),
               ],
             ),
@@ -430,16 +615,16 @@ class _PhotoBoothScreenState extends State<PhotoBoothScreen> {
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              for (var i = 0; i < 3; i++)
+              for (final strip in [false, true])
                 GestureDetector(
-                  onTap: () => setState(() => _mode = i),
+                  onTap: _busy ? null : () => setState(() => _strip = strip),
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 14),
                     child: Text(
-                      ['BOOMERANG', 'PHOTO', 'STRIP ×4'][i],
+                      strip ? 'STRIP ×4' : 'PHOTO',
                       style: dm(
                         13.5,
-                        color: _mode == i ? C.pink : Colors.white54,
+                        color: _strip == strip ? C.pink : Colors.white54,
                         weight: FontWeight.w700,
                         spacing: 0.8,
                       ),
@@ -474,31 +659,86 @@ class _PhotoBoothScreenState extends State<PhotoBoothScreen> {
 }
 
 // ---------------------------------------------------------------------------
-// A16 Photo share
+// A16 Photo share: points are earned only after the photo is really shared
 // ---------------------------------------------------------------------------
 
 class PhotoShareScreen extends StatefulWidget {
   final FrameStyle style;
-  final bool strip;
-  const PhotoShareScreen({super.key, required this.style, this.strip = false});
+  final List<BoothShot> shots; // 1 photo, or 4 for a strip
+  const PhotoShareScreen({super.key, required this.style, required this.shots});
 
   @override
   State<PhotoShareScreen> createState() => _PhotoShareScreenState();
 }
 
 class _PhotoShareScreenState extends State<PhotoShareScreen> {
-  bool _feature = true;
+  final _card = GlobalKey();
+  final _shareBtn = GlobalKey();
+  bool _sharing = false;
 
-  void _share(String where) {
-    if (!app.sharedPhoto) {
-      app.sharedPhoto = true;
-      Repo.sharePhoto();
-      toast(context, 'Shared to $where · +${Rules.photoPoints} pts earned!');
-    } else {
-      toast(
-        context,
-        where == 'Save' ? 'Saved to your photos' : 'Shared to $where',
+  /// iOS share-sheet actions that keep the photo on the phone instead of
+  /// sharing it. These never earn points.
+  static const _notAShare = [
+    'SaveToCameraRoll',
+    'CopyToPasteboard',
+    'Print',
+    'AssignToContact',
+    'SaveToFiles',
+    'MarkupAsPDF',
+    'AddToReadingList',
+  ];
+
+  /// The framed photo exactly as shown on screen, as a PNG.
+  Future<XFile> _render() async {
+    final boundary = _card.currentContext!.findRenderObject()! as RenderRepaintBoundary;
+    final image = await boundary.toImage(pixelRatio: 3);
+    final data = await image.toByteData(format: ui.ImageByteFormat.png);
+    image.dispose();
+    return XFile.fromData(
+      data!.buffer.asUint8List(),
+      mimeType: 'image/png',
+      name: 'lick-it-photo-${DateTime.now().millisecondsSinceEpoch}.png',
+    );
+  }
+
+  Future<void> _share() async {
+    if (_sharing) return;
+    setState(() => _sharing = true);
+    try {
+      final file = await _render();
+      // iPad needs to know where to anchor the share popover.
+      final box = _shareBtn.currentContext?.findRenderObject() as RenderBox?;
+      final origin = box == null ? null : box.localToGlobal(Offset.zero) & box.size;
+      final result = await Share.shareXFiles(
+        [file],
+        text: 'Love at First Lick 🍦 #LickItLove',
+        sharePositionOrigin: origin,
       );
+      if (!mounted) return;
+
+      final shared = result.status == ShareResultStatus.success && !_notAShare.any(result.raw.contains);
+      if (!shared) {
+        toast(
+          context,
+          result.status == ShareResultStatus.success
+              ? 'Saved. Share it to an app to earn ${Rules.photoPoints} pts.'
+              : 'Not shared yet. Share it to earn ${Rules.photoPoints} pts.',
+        );
+        return;
+      }
+      if (!Api.hasToken) {
+        toast(context, 'Shared! Sign in next time to earn points for sharing.');
+        return;
+      }
+      final earned = await Repo.sharePhoto();
+      if (!mounted) return;
+      if (earned > 0) app.sharedPhoto = true;
+      toast(context, earned > 0 ? 'Shared · +$earned pts earned!' : 'Shared! Thanks for spreading the love.');
+      setState(() {});
+    } catch (_) {
+      if (mounted) toast(context, "Couldn't open sharing. Please try again.");
+    } finally {
+      if (mounted) setState(() => _sharing = false);
     }
   }
 
@@ -506,6 +746,7 @@ class _PhotoShareScreenState extends State<PhotoShareScreen> {
   Widget build(BuildContext context) {
     final w = MediaQuery.of(context).size.width;
     final cardW = math.min(w * 0.76, 320.0);
+    final shots = widget.shots;
     return Scaffold(
       body: SafeArea(
         child: Column(
@@ -516,25 +757,14 @@ class _PhotoShareScreenState extends State<PhotoShareScreen> {
                 children: [
                   TextButton(
                     onPressed: () => Navigator.pop(context),
-                    child: Text(
-                      'Retake',
-                      style: dm(16, weight: FontWeight.w500),
-                    ),
+                    child: Text('Retake', style: dm(16, weight: FontWeight.w500)),
                   ),
                   Expanded(
-                    child: Text(
-                      'Looking sweet!',
-                      textAlign: TextAlign.center,
-                      style: fred(20),
-                    ),
+                    child: Text('Looking sweet!', textAlign: TextAlign.center, style: fred(20)),
                   ),
                   TextButton(
-                    onPressed: () =>
-                        Navigator.of(context).popUntil((r) => r.isFirst),
-                    child: Text(
-                      'Done',
-                      style: dm(16, color: C.deep, weight: FontWeight.w700),
-                    ),
+                    onPressed: () => Navigator.of(context).popUntil((r) => r.isFirst),
+                    child: Text('Done', style: dm(16, color: C.deep, weight: FontWeight.w700)),
                   ),
                 ],
               ),
@@ -546,61 +776,59 @@ class _PhotoShareScreenState extends State<PhotoShareScreen> {
                   Center(
                     child: Transform.rotate(
                       angle: 0.03,
-                      child: Container(
-                        width: cardW,
-                        padding: EdgeInsets.fromLTRB(
-                          cardW * 0.05,
-                          cardW * 0.05,
-                          cardW * 0.05,
-                          8,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(4),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withValues(alpha: 0.14),
-                              blurRadius: 18,
-                              offset: const Offset(0, 8),
-                            ),
-                          ],
-                        ),
-                        child: Column(
-                          children: [
-                            if (widget.strip)
-                              SizedBox(
-                                height: cardW * 1.08,
-                                child: GridView.count(
-                                  crossAxisCount: 2,
-                                  mainAxisSpacing: 6,
-                                  crossAxisSpacing: 6,
-                                  childAspectRatio: 0.82,
-                                  physics: const NeverScrollableScrollPhysics(),
-                                  children: [
-                                    for (var i = 0; i < 4; i++)
-                                      BoothFrame(
-                                        style: widget.style,
-                                        scale: 0.32,
-                                        radius: 10,
-                                      ),
-                                  ],
-                                ),
-                              )
-                            else
-                              AspectRatio(
-                                aspectRatio: 0.82,
-                                child: BoothFrame(
-                                  style: widget.style,
-                                  scale: cardW / 400,
-                                  radius: 4,
-                                ),
+                      // Everything inside the boundary is what gets shared.
+                      child: RepaintBoundary(
+                        key: _card,
+                        child: Container(
+                          width: cardW,
+                          padding: EdgeInsets.fromLTRB(cardW * 0.05, cardW * 0.05, cardW * 0.05, 8),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(4),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withValues(alpha: 0.14),
+                                blurRadius: 18,
+                                offset: const Offset(0, 8),
                               ),
-                            const SizedBox(height: 8),
-                            Text(
-                              'Love at First Lick.',
-                              style: script(20, color: C.deep),
-                            ),
-                          ],
+                            ],
+                          ),
+                          child: Column(
+                            children: [
+                              if (shots.length > 1)
+                                SizedBox(
+                                  height: cardW * 1.08,
+                                  child: GridView.count(
+                                    crossAxisCount: 2,
+                                    mainAxisSpacing: 6,
+                                    crossAxisSpacing: 6,
+                                    childAspectRatio: 0.82,
+                                    physics: const NeverScrollableScrollPhysics(),
+                                    children: [
+                                      for (final s in shots.take(4))
+                                        BoothFrame(
+                                          style: widget.style,
+                                          scale: 0.32,
+                                          radius: 10,
+                                          child: BoothFrame.photo(s),
+                                        ),
+                                    ],
+                                  ),
+                                )
+                              else
+                                AspectRatio(
+                                  aspectRatio: 0.82,
+                                  child: BoothFrame(
+                                    style: widget.style,
+                                    scale: cardW / 400,
+                                    radius: 4,
+                                    child: BoothFrame.photo(shots.first),
+                                  ),
+                                ),
+                              const SizedBox(height: 8),
+                              Text('Love at First Lick.', style: script(20, color: C.deep)),
+                            ],
+                          ),
                         ),
                       ),
                     ),
@@ -608,24 +836,15 @@ class _PhotoShareScreenState extends State<PhotoShareScreen> {
                   const SizedBox(height: 22),
                   Container(
                     padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      color: C.ink,
-                      borderRadius: BorderRadius.circular(20),
-                    ),
+                    decoration: BoxDecoration(color: C.ink, borderRadius: BorderRadius.circular(20)),
                     child: Row(
                       children: [
                         Container(
                           width: 50,
                           height: 50,
                           alignment: Alignment.center,
-                          decoration: const BoxDecoration(
-                            color: C.yellow,
-                            shape: BoxShape.circle,
-                          ),
-                          child: Text(
-                            app.sharedPhoto ? '✓' : '+25',
-                            style: fred(17),
-                          ),
+                          decoration: const BoxDecoration(color: C.yellow, shape: BoxShape.circle),
+                          child: Text(app.sharedPhoto ? '✓' : '+${Rules.photoPoints}', style: fred(17)),
                         ),
                         const SizedBox(width: 14),
                         Expanded(
@@ -636,15 +855,12 @@ class _PhotoShareScreenState extends State<PhotoShareScreen> {
                                 const TextSpan(text: 'Share with '),
                                 TextSpan(
                                   text: '#LickItLove',
-                                  style: dm(
-                                    14,
-                                    color: Colors.white,
-                                    weight: FontWeight.w700,
-                                    height: 1.35,
-                                  ),
+                                  style: dm(14, color: Colors.white, weight: FontWeight.w700, height: 1.35),
                                 ),
-                                const TextSpan(
-                                  text: ' to earn 25 points. Best photo each month wins a free waffle cake.',
+                                TextSpan(
+                                  text: app.sharedPhoto
+                                      ? '. Your sharing points are in your account.'
+                                      : ' to earn ${Rules.photoPoints} points on your first share. Points are added once the photo is shared.',
                                 ),
                               ],
                             ),
@@ -654,82 +870,22 @@ class _PhotoShareScreenState extends State<PhotoShareScreen> {
                     ),
                   ),
                   const SizedBox(height: 18),
-                  Text('Share to', style: fred(18)),
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      _shareTile(
-                        'Instagram',
-                        Icons.camera_alt_outlined,
-                        const Color(0xFFC13584),
-                      ),
-                      _shareTile('TikTok', Icons.music_note_rounded, C.ink),
-                      _shareTile(
-                        'Facebook',
-                        Icons.facebook_rounded,
-                        const Color(0xFF1877F2),
-                      ),
-                      _shareTile(
-                        'Save',
-                        Icons.download_rounded,
-                        C.blush,
-                        iconColor: C.deep,
-                      ),
-                    ],
+                  Btn(
+                    _sharing ? 'Opening…' : 'Share photo',
+                    key: _shareBtn,
+                    icon: Icons.ios_share_rounded,
+                    onTap: _sharing ? null : _share,
                   ),
-                  const SizedBox(height: 14),
-                  GestureDetector(
-                    onTap: () => setState(() => _feature = !_feature),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        PinkCheck(_feature),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Text(
-                            'Allow Lick It to feature my photo on the website wall',
-                            style: dm(14.5, height: 1.35),
-                          ),
-                        ),
-                      ],
-                    ),
+                  const SizedBox(height: 10),
+                  Text(
+                    'Pick Instagram, TikTok, WhatsApp, Facebook or any app on your phone.',
+                    textAlign: TextAlign.center,
+                    style: dm(13, color: C.grey, height: 1.35),
                   ),
                 ],
               ),
             ),
           ],
-        ),
-      ),
-    );
-  }
-
-  Widget _shareTile(
-    String label,
-    IconData icon,
-    Color bg, {
-    Color iconColor = Colors.white,
-  }) {
-    return Expanded(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 4),
-        child: CardBox(
-          padding: const EdgeInsets.symmetric(vertical: 12),
-          onTap: () => _share(label),
-          child: Column(
-            children: [
-              Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                  color: bg,
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Icon(icon, color: iconColor, size: 22),
-              ),
-              const SizedBox(height: 6),
-              Text(label, style: dm(12.5, weight: FontWeight.w700)),
-            ],
-          ),
         ),
       ),
     );

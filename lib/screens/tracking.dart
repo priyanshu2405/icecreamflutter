@@ -106,7 +106,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
               ],
               const SizedBox(height: 20),
               Btn(
-                'Snap it for +25 pts',
+                'Snap it for +${Rules.photoPoints} pts',
                 onTap: () {
                   Navigator.pop(ctx);
                   push(context, const PhotoBoothScreen());
@@ -357,7 +357,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
                     children: [
                       Text('Photo booth', style: fred(18, color: Colors.white)),
                       Text(
-                        'Snap it for +25 pts',
+                        'Snap it for +${Rules.photoPoints} pts',
                         style: dm(12.5, color: Colors.white),
                       ),
                     ],

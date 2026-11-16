@@ -51,6 +51,15 @@ if [ -x /usr/libexec/PlistBuddy ]; then
   /usr/libexec/PlistBuddy -c "Add :NSLocationWhenInUseUsageDescription string 'Lick It uses your location to fill in your delivery address and find the nearest store.'" ios/Runner/Info.plist 2>/dev/null || true
 fi
 
+echo "==> Camera permission (Photo Booth) and saving photos from the share sheet"
+if ! grep -q 'android.permission.CAMERA' "$MANIFEST"; then
+  perl -0pi -e 's#<application#<uses-permission android:name="android.permission.CAMERA"/>\n    <application#' "$MANIFEST"
+fi
+if [ -x /usr/libexec/PlistBuddy ]; then
+  /usr/libexec/PlistBuddy -c "Add :NSCameraUsageDescription string 'Lick It uses the camera for the Photo Booth so you can take and share framed photos.'" ios/Runner/Info.plist 2>/dev/null || true
+  /usr/libexec/PlistBuddy -c "Add :NSPhotoLibraryAddUsageDescription string 'Lick It saves your Photo Booth pictures to your photos when you choose Save Image.'" ios/Runner/Info.plist 2>/dev/null || true
+fi
+
 echo "==> Getting packages"
 flutter pub get
 

@@ -31,65 +31,10 @@ class OrdersScreen extends StatelessWidget {
                       ActiveOrderStrip(order: app.active!),
                       const SizedBox(height: 18),
                     ],
-                    Text('My creations', style: fred(20)),
-                    const SizedBox(height: 10),
-                    CardBox(
-                      padding: const EdgeInsets.all(12),
-                      child: Row(
-                        children: [
-                          const FoodTile(
-                            color: C.blush,
-                            size: 58,
-                            radius: 14,
-                            icon: Icons.grid_on_rounded,
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  '"Priya\'s Pink Stack"',
-                                  style: dm(15.5, weight: FontWeight.w700),
-                                ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  'Classic · Strawberry + Cookies & Cream · Nutella · Oreo',
-                                  style: dm(12.5, color: C.grey, height: 1.35),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Btn(
-                            'Reorder',
-                            expand: false,
-                            height: 38,
-                            fontSize: 14,
-                            onTap: () {
-                              app.add(
-                                itemById('signature'),
-                                scoops: const ['Strawberry', 'Cookies & Cream'],
-                                toppings: const [
-                                  'Nutella drizzle',
-                                  'Oreo crumble',
-                                ],
-                              );
-                              toast(
-                                context,
-                                "Added Priya's Pink Stack",
-                                action: 'View cart',
-                                onAction: () =>
-                                    push(context, const CartScreen()),
-                              );
-                            },
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 20),
                     Text('Past orders', style: fred(20)),
                     const SizedBox(height: 10),
+                    if (app.past.isEmpty)
+                      Text('No orders yet.', style: dm(15, color: C.grey)),
                     for (final o in app.past) ...[
                       _PastOrderCard(order: o),
                       const SizedBox(height: 12),
@@ -235,7 +180,7 @@ class _PastOrderCard extends StatelessWidget {
               const SizedBox(width: 10),
               Expanded(
                 child: Btn(
-                  order.rated ? 'Rated ★' : 'Rate · +15 pts',
+                  order.rated ? 'Rated ★' : 'Rate · +${Rules.ratingPoints} pts',
                   style: BtnStyle.outline,
                   height: 44,
                   fontSize: 14.5,

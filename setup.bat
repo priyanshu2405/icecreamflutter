@@ -31,6 +31,10 @@ echo ==^> Location permission (Use my current location on the delivery address m
 powershell -NoProfile -Command "$f='android\app\src\main\AndroidManifest.xml'; $t=Get-Content $f -Raw; if ($t -notmatch 'ACCESS_FINE_LOCATION') { $q=[char]34; $t=$t -replace '<application', ('<uses-permission android:name='+$q+'android.permission.ACCESS_COARSE_LOCATION'+$q+'/>'+[char]10+'    <uses-permission android:name='+$q+'android.permission.ACCESS_FINE_LOCATION'+$q+'/>'+[char]10+'    <application'); Set-Content $f $t }"
 rem iOS builds need a Mac: setup.sh adds the iOS location message there.
 
+echo ==^> Camera permission (Photo Booth)
+powershell -NoProfile -Command "$f='android\app\src\main\AndroidManifest.xml'; $t=Get-Content $f -Raw; if ($t -notmatch 'android.permission.CAMERA') { $q=[char]34; $t=$t -replace '<application', ('<uses-permission android:name='+$q+'android.permission.CAMERA'+$q+'/>'+[char]10+'    <application'); Set-Content $f $t }"
+rem iOS builds need a Mac: setup.sh adds the iOS camera and photo messages there.
+
 echo ==^> Getting packages
 call flutter pub get
 
